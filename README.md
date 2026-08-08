@@ -30,6 +30,24 @@ M0–M4 have been run against the real panel. Everything marked ⚠️ compiles 
 passes unit tests but has not touched hardware — the honest distinction, kept
 here deliberately.
 
+## When the panel comes back
+
+The board is currently running an older image (no RLE, no touch), and the RLE,
+touch and Linux paths have never run on hardware. In order:
+
+```sh
+make flash                    # both Type-C cables in: UART flashes, OTG carries the display
+glint doctor                  # panel + permissions + private API in one go
+glint display                 # should look exactly as before — RLE is the only new thing on the wire
+glint touch --calibrate       # tap 3 corners; it prints the --tp-* flags for this board
+glint display --touch --tp-…  # touch drives the cursor
+glint stats                   # watch for drops while dragging a window at 30fps
+```
+
+If tiles look smeared or misplaced, the suspect is the RLE path: run
+`glint display --full` (whole frames) to confirm, and if that is clean the
+encoder and decoder disagree somewhere the shared fixture does not cover.
+
 ## Quick start (macOS)
 
 ```sh
