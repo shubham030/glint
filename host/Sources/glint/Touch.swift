@@ -74,7 +74,9 @@ final class TouchReader {
     private let raw: Bool
     private let onDrops: (() -> Void)?
     private var dragging = false
-    private var lastDrops = 0
+    /// Negative until the first STATS report arrives.
+    private var lastLosses = -1
+    private var lastResyncs = -1
 
     init(
         dev: USBDevice, hello: Hello, mapping: TouchMapping,
@@ -120,14 +122,24 @@ final class TouchReader {
 
     private func handle(_ evt: TouchEvent) {
         if evt.type == .stats {
-            /* The device drops tiles when its queue overruns, so the panel no
-             * longer matches our hash table — force a full refresh. */
-            if evt.x > lastDrops {
-                lastDrops = evt.x
+            /* Either counter moving means a tile never reached the panel — a
+             * resync is the device discarding bytes or rejecting a header, not
+             * just bookkeeping — so the panel no longer matches our hash table.
+             * Movement in any direction counts: a counter going backwards means
+             * the device restarted its bookkeeping, which is equally divergent.
+             * A first report with non-zero counters means losses happened before
+             * we started watching. */
+            let firstReport = lastLosses < 0
+            let changed = evt.x != lastLosses || evt.y != lastResyncs
+            let lostSomething = evt.x > 0 || evt.y > 0
+            if firstReport ? lostSomething : changed {
                 onDrops?()
             }
+            lastLosses = evt.x
+            lastResyncs = evt.y
+
             if raw {
-                print("STATS dropped=\(evt.x) resyncs=\(evt.y)")
+                print("STATS losses=\(evt.x) resyncs=\(evt.y)")
             }
             return
         }

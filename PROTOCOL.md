@@ -138,9 +138,26 @@ display's rotation, so the host owns the mapping (see "Touch mapping" below).
 **STATS** (`type 5`) reuses the coordinate fields: `x` carries dropped tiles
 plus sequence gaps, `y` carries resynchronisations. The device emits one per
 second *only when a counter changed*, so an idle link is silent. When the host
-sees the drop count rise it invalidates its tile hashes, which makes the next
+sees either counter move it invalidates its tile hashes, which makes the next
 frame a full refresh — that is the whole recovery mechanism, and it is why the
 device does not need to ask for anything.
+
+Host policy, which both hosts implement identically:
+
+- **Either** counter counts. A resync means the device discarded bytes hunting
+  for a tile magic or rejected a malformed header; like a drop, it means a tile
+  never reached the panel.
+- Movement in **any direction** counts. A counter going backwards means the
+  device restarted its bookkeeping, which is equally divergent.
+- A **first** report with non-zero counters means losses happened before the
+  host started watching, so it refreshes then too.
+- Something must **always** drain this pipe. The device's TX FIFO is small, and
+  once it fills, later events — including these — are discarded. A host that
+  only reads the pipe when it wants touch input leaves recovery silently dead.
+- Known dead spot: the counters saturate at `0xFFFF`, after which further
+  losses stop producing movement and no more refreshes are requested. Reaching
+  it takes 65535 lost tiles, and a device reboot clears the counters long
+  before that, so it is documented rather than worked around.
 
 **HELLO** (`type 4`) is reserved for a device-initiated re-announce.
 
