@@ -118,7 +118,11 @@ do {
         print("sent \(path) (\(n) bytes)")
 
     case "display":
-        let fps = max(1, argValue("--fps", default: 12))
+        /* Tiles make a typical frame ~18KB, so a higher cap costs little and
+         * cuts latency for small changes; a full-screen change still
+         * self-limits on the SPI bus because the send is synchronous. */
+        let tiled = !CommandLine.arguments.contains("--full")
+        let fps = max(1, argValue("--fps", default: tiled ? 30 : 12))
         let seconds = argValue("--seconds", default: 0) /* 0 = until ^C */
         let landscape = !CommandLine.arguments.contains("--portrait")
         /* Default 2× backing: WindowServer coerces a literal 480×320 mode
@@ -159,7 +163,8 @@ do {
             dev: dev, hello: hello, landscape: landscape,
             displayID: displayID,
             satPct: flat ? 100 : argValue("--sat", default: 130),
-            conPct: flat ? 100 : argValue("--con", default: 110))
+            conPct: flat ? 100 : argValue("--con", default: 110),
+            fullFrames: CommandLine.arguments.contains("--full"))
         try await runSession(session, fps: fps, seconds: seconds)
         _ = glintlay /* keep the display alive for the session */
 
@@ -168,7 +173,8 @@ do {
         let seconds = argValue("--seconds", default: 0)
         let landscape = CommandLine.arguments.contains("--landscape")
         let session = MirrorSession(
-            dev: dev, hello: hello, landscape: landscape)
+            dev: dev, hello: hello, landscape: landscape,
+            fullFrames: CommandLine.arguments.contains("--full"))
         try await runSession(session, fps: fps, seconds: seconds)
 
     case "bars":
