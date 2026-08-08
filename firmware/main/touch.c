@@ -15,38 +15,77 @@ static const char *TAG = "touch";
 #define MAX_POINTS     2
 #define MOVE_THRESHOLD 2 /* panel px; suppresses jitter on a still finger */
 
-/* The vendored FT6336 driver fills coordinates by array position and never
- * populates track_id, so a report is an unordered set of positions: when the
- * first of two fingers lifts, the second shifts down an index. Contacts are
- * therefore matched to slots by proximity, and a point further than this from
- * every known contact is treated as a new one. */
+/* A report is an unordered set of positions, so contacts have to be tied to
+ * slots somehow. The FT6336 supplies a hardware Touch ID per point, which is
+ * exact; the vendored driver was discarding it (now fixed, see
+ * esp_lcd_touch_ft6336.c) but some FT6x36 firmware reports 0x0F for an inactive
+ * point and others never populate the nibble at all, so IDs are used only when
+ * they look real and proximity remains the fallback. Without either, lifting
+ * the first of two fingers renumbers the second. */
 #define MATCH_RADIUS 60
+#define TRACK_ID_NONE 0x0F
 
 static esp_lcd_touch_handle_t s_tp;
 
 typedef struct {
     bool down;
+    bool has_id;
+    uint8_t id;
     uint16_t x, y;
 } point_state_t;
 
-static int nearest_slot(const point_state_t *slots, uint16_t x, uint16_t y)
+/* Nearest active slot within MATCH_RADIUS, skipping ones already taken this
+ * cycle — a contact whose closest slot is claimed still belongs somewhere, and
+ * bailing out here would drop it and fire a spurious UP. */
+static int nearest_slot(
+    const point_state_t *slots, const bool *claimed, uint16_t x, uint16_t y)
 {
     int best = -1;
     long best_d2 = (long)MATCH_RADIUS * MATCH_RADIUS;
 
     for (int i = 0; i < MAX_POINTS; i++) {
-        if (!slots[i].down) {
+        if (!slots[i].down || claimed[i]) {
             continue;
         }
         const long dx = (long)x - slots[i].x;
         const long dy = (long)y - slots[i].y;
         const long d2 = dx * dx + dy * dy;
-        if (d2 <= best_d2) {
+        if (d2 < best_d2) { /* strict: an exact tie keeps the lower index */
             best_d2 = d2;
             best = i;
         }
     }
     return best;
+}
+
+/* Slot holding this hardware ID, if any. */
+static int slot_by_id(
+    const point_state_t *slots, const bool *claimed, uint8_t id)
+{
+    for (int i = 0; i < MAX_POINTS; i++) {
+        if (slots[i].down && !claimed[i] && slots[i].has_id
+            && slots[i].id == id) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+/* IDs are only trustworthy when every reported point has a real one and they
+ * are distinct; a driver that leaves the nibble at zero would collide. */
+static bool ids_usable(const esp_lcd_touch_point_data_t *pts, uint8_t count)
+{
+    for (uint8_t i = 0; i < count; i++) {
+        if (pts[i].track_id == TRACK_ID_NONE) {
+            return false;
+        }
+        for (uint8_t j = 0; j < i; j++) {
+            if (pts[i].track_id == pts[j].track_id) {
+                return false;
+            }
+        }
+    }
+    return count > 0;
 }
 
 static int free_slot(const point_state_t *slots, const bool *claimed)
@@ -88,30 +127,37 @@ static void touch_task(void *arg)
         }
 
         bool claimed[MAX_POINTS] = {0};
+        const bool by_id = ids_usable(pts, count);
 
         for (uint8_t i = 0; i < count; i++) {
             const uint16_t x = pts[i].x;
             const uint16_t y = pts[i].y;
 
-            int slot = nearest_slot(slots, x, y);
-            if (slot >= 0 && claimed[slot]) {
-                slot = -1; /* another contact already took it this cycle */
-            }
+            const int slot = by_id
+                                 ? slot_by_id(slots, claimed, pts[i].track_id)
+                                 : nearest_slot(slots, claimed, x, y);
 
             if (slot < 0) {
-                slot = free_slot(slots, claimed);
-                if (slot < 0) {
+                const int fresh = free_slot(slots, claimed);
+                if (fresh < 0) {
                     continue; /* more contacts than slots: ignore the extra */
                 }
-                claimed[slot] = true;
-                slots[slot].down = true;
-                slots[slot].x = x;
-                slots[slot].y = y;
-                emit(GLINT_EVT_DOWN, (uint8_t)slot, x, y);
+                claimed[fresh] = true;
+                slots[fresh].down = true;
+                slots[fresh].has_id = by_id;
+                slots[fresh].id = pts[i].track_id;
+                slots[fresh].x = x;
+                slots[fresh].y = y;
+                emit(GLINT_EVT_DOWN, (uint8_t)fresh, x, y);
                 continue;
             }
 
             claimed[slot] = true;
+            /* Refresh the ID even on a proximity match, so a slot cannot keep a
+             * stale one and be mismatched once IDs are usable again. */
+            slots[slot].has_id = by_id;
+            slots[slot].id = pts[i].track_id;
+
             const int dx = (int)x - (int)slots[slot].x;
             const int dy = (int)y - (int)slots[slot].y;
             if (dx * dx + dy * dy < MOVE_THRESHOLD * MOVE_THRESHOLD) {

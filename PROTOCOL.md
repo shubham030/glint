@@ -106,7 +106,9 @@ A stream of runs. Each begins with a 2-byte little-endian count word:
   RGB565 values follow verbatim.
 
 Decoded pixels must total `w * h`; a stream that decodes to any other length is
-corrupt and the tile is dropped. Runs of 3 or more pixels are worth a RUN word
+corrupt and the tile is dropped. A single trailing byte after the last complete
+run is ignored (it cannot begin a count word); two or more trailing bytes are a
+malformed stream, because the extra word's count would overrun the tile. Runs of 3 or more pixels are worth a RUN word
 (4 bytes) rather than staying in a LITERAL (2 bytes/pixel), which is where the
 encoder's threshold comes from. Counts longer than `0x7FFF` are split across
 consecutive words.
