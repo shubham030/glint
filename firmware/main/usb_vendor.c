@@ -280,3 +280,15 @@ void usb_vendor_get_stats(glint_usb_stats_t *out)
 {
     *out = s_stats;
 }
+
+void usb_vendor_send_event(const glint_evt_t *evt)
+{
+    if (!tud_vendor_mounted()) {
+        return;
+    }
+    if (tud_vendor_write_available() < sizeof(*evt)) {
+        return; /* host not draining; see header */
+    }
+    tud_vendor_write(evt, sizeof(*evt));
+    tud_vendor_write_flush();
+}

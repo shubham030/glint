@@ -9,6 +9,7 @@ enum Glint {
 
     static let magicHello: UInt32 = 0x4C48_3450 // 'P4HL'
     static let magicTile: UInt32 = 0x4454_3450 // 'P4TD'
+    static let magicEvt: UInt32 = 0x5645_3450 // 'P4EV'
     static let protoVer: UInt16 = 1
 
     enum Cmd: UInt8 {

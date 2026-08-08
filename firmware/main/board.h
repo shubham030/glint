@@ -28,6 +28,12 @@
 #define BOARD_LCD_MIRROR_X 1 /* panel scans mirrored; mapcast sets this too */
 #define BOARD_LCD_MIRROR_Y 0
 
+/* FT6336 on the shared ESP_I2C bus (schematic: TP_SDA/TP_SCL/TP_RST/TP_INT) */
+#define BOARD_PIN_I2C_SDA GPIO_NUM_7
+#define BOARD_PIN_I2C_SCL GPIO_NUM_8
+#define BOARD_PIN_TP_RST  GPIO_NUM_29
+#define BOARD_PIN_TP_INT  GPIO_NUM_50
+
 #elif CONFIG_IDF_TARGET_ESP32S3
 
 #define BOARD_PIN_LCD_MOSI GPIO_NUM_1
@@ -44,6 +50,8 @@
 
 #define BOARD_PIN_I2C_SDA GPIO_NUM_8
 #define BOARD_PIN_I2C_SCL GPIO_NUM_7
+#define BOARD_PIN_TP_RST  GPIO_NUM_NC
+#define BOARD_PIN_TP_INT  GPIO_NUM_NC
 
 #else
 #error "unsupported target — add a board pin map"

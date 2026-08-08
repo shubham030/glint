@@ -177,6 +177,16 @@ do {
             fullFrames: CommandLine.arguments.contains("--full"))
         try await runSession(session, fps: fps, seconds: seconds)
 
+    case "touch":
+        /* Calibration mode: prints panel coords so the mapping flags can be
+         * chosen from real taps rather than guessed. */
+        let reader = TouchReader(
+            dev: dev, hello: hello,
+            mapping: TouchMapping.parse(CommandLine.arguments),
+            bounds: nil, raw: true)
+        print("tap the panel — Ctrl-C to stop")
+        reader.run()
+
     case "bars":
         let seconds = argValue("--seconds", default: 10)
         let fps = max(1, argValue("--fps", default: 10))

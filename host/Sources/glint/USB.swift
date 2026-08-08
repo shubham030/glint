@@ -78,6 +78,19 @@ final class USBDevice {
         guard rc >= 0 else { throw USBError.libusb("control write", rc) }
     }
 
+    /// Reads one bulk IN packet. Returns empty on timeout (no events pending).
+    func bulkRead(
+        endpoint: UInt8 = 0x81, length: Int, timeoutMs: UInt32 = 500
+    ) throws -> Data {
+        var buf = [UInt8](repeating: 0, count: length)
+        var got: Int32 = 0
+        let rc = libusb_bulk_transfer(
+            handle, endpoint, &buf, Int32(length), &got, timeoutMs)
+        if rc == LIBUSB_ERROR_TIMEOUT.rawValue { return Data() }
+        guard rc == 0 else { throw USBError.libusb("bulk read", rc) }
+        return Data(buf.prefix(Int(got)))
+    }
+
     func bulkWrite(
         endpoint: UInt8 = 0x01, _ data: Data, timeoutMs: UInt32 = 2000
     ) throws {

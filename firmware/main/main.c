@@ -1,15 +1,16 @@
 #include <stdlib.h>
 
 #include "board.h"
+#include "driver/i2c_master.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
 #include "lcd.h"
+#include "touch.h"
 #include "usb_vendor.h"
 
 #if BOARD_HAS_AXP2101
-#include "driver/i2c_master.h"
 #include "power.h"
 #endif
 
@@ -44,7 +45,6 @@ static void lcd_task(void *arg)
 
 void app_main(void)
 {
-#if BOARD_HAS_AXP2101
     const i2c_master_bus_config_t i2c_cfg = {
         .clk_source = I2C_CLK_SRC_DEFAULT,
         .i2c_port = I2C_NUM_0,
@@ -55,6 +55,8 @@ void app_main(void)
     };
     i2c_master_bus_handle_t i2c_bus = NULL;
     ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_cfg, &i2c_bus));
+
+#if BOARD_HAS_AXP2101
     ESP_ERROR_CHECK(power_init(i2c_bus));
 #endif
 
@@ -68,6 +70,13 @@ void app_main(void)
     xTaskCreatePinnedToCore(lcd_task, "lcd", 4096, tile_queue, 9, NULL, 0);
 
     ESP_ERROR_CHECK(usb_vendor_init(tile_queue));
+
+    /* Touch is a nice-to-have: log and carry on if the panel doesn't answer. */
+    const esp_err_t tp = touch_init(i2c_bus);
+    if (tp != ESP_OK) {
+        ESP_LOGW(TAG, "touch init failed (%s) — display only",
+                 esp_err_to_name(tp));
+    }
 
     ESP_LOGI(TAG, "glint fw ready: %dx%d", BOARD_LCD_H_RES, BOARD_LCD_V_RES);
 }
