@@ -20,6 +20,8 @@ final class MirrorSession: NSObject, SCStreamOutput, SCStreamDelegate {
     private var tilesSent = 0
     private var compressed = 0
     private var idleFrames = 0
+    private let resyncLock = NSLock()
+    private var resyncPending = false
     private let started = Date()
     private var stream: SCStream?
 
@@ -44,10 +46,25 @@ final class MirrorSession: NSObject, SCStreamOutput, SCStreamDelegate {
             allowRLE: hello.supports(.rle))
     }
 
-    /// Called when the device reports dropped tiles: the panel and our hash
-    /// table have diverged, so the next frame must be a full refresh.
+    /// Called from the event-reader thread when the device reports dropped
+    /// tiles: the panel and our hash table have diverged, so the next frame
+    /// must be a full refresh.
+    ///
+    /// This only raises a flag. `TileSender` is not concurrency-safe and the
+    /// capture queue may be inside `packets(px:)` right now, so the
+    /// invalidation itself happens on the frame path.
     func resync() {
-        tiles.invalidate()
+        resyncLock.lock()
+        resyncPending = true
+        resyncLock.unlock()
+    }
+
+    private func takeResyncRequest() -> Bool {
+        resyncLock.lock()
+        defer { resyncLock.unlock() }
+        let pending = resyncPending
+        resyncPending = false
+        return pending
     }
 
     func start(fps: Int) async throws {
@@ -130,6 +147,11 @@ final class MirrorSession: NSObject, SCStreamOutput, SCStreamDelegate {
                 mode: .fill, landscape: landscape, satPct: satPct,
                 conPct: conPct)
         else { return }
+
+        if takeResyncRequest() {
+            print("device reported losses — forcing a full refresh")
+            tiles.invalidate()
+        }
 
         do {
             let (packets, s) = tiles.packets(px: px, forceFull: fullFrames)

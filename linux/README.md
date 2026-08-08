@@ -109,6 +109,15 @@ in `fmt_mask` *and* smaller than the raw payload — a photo tile encodes larger
 than raw, and firmware that only advertises `RGB565` must never be handed
 fmt 1. `proto/rle_test.go` pins the byte layout against `firmware/main/rle.c`.
 
+**Resync.** `glint fb` drains bulk IN from a goroutine for as long as it
+streams, and forces a `FULL_REFRESH` when the device's STATS counters move
+(`x` = dropped tiles + sequence gaps, `y` = stream resyncs, both cumulative and
+saturating at 0xFFFF). The pipe is drained whether or not anyone asked for
+events: the device's TX FIFO is small, and once it fills the firmware discards
+every later event — including the STATS reports the mechanism depends on. The
+tiler is not concurrency-safe, so the reader only raises an atomic flag and the
+frame loop does the invalidating between frames.
+
 **ZLP.** Bulk writes whose total length is an exact multiple of the endpoint's
 max packet size are followed by a zero-length packet. The packet size comes
 from the endpoint descriptor in sysfs
@@ -160,6 +169,14 @@ the protocol headers and the firmware's own decoder, and that is all:
 - **Touch and STATS decoding.** The 12-byte layout is pinned by tests, but no
   real event has been parsed. The STATS field meanings (`x` = dropped tiles +
   sequence gaps, `y` = resyncs) are read off the current firmware source.
+- **The resync loop end to end.** The policy is unit-tested over synthetic
+  event sequences, but no STATS event has ever arrived from a device, so the
+  loop has never actually fired.
+- **Concurrent transfers on one usbfs fd.** `glint fb` reads bulk IN from a
+  goroutine while writing bulk OUT from another. This assumes the kernel drops
+  the device lock around the blocking part of `USBDEVFS_BULK` (as libusb-based
+  hosts rely on). If it does not, a 500 ms read could stall writes and drag the
+  frame rate down. Never observed either way.
 - **Landscape orientation.** The rotation matches the macOS host's transform as
   derived from its CoreGraphics code, but which way to physically mount the
   panel has not been confirmed by looking at one.

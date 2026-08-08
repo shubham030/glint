@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"image"
+	"sync/atomic"
 	"time"
 
 	"github.com/shubham030/glint/linux/fb"
@@ -131,8 +132,27 @@ func runFramebuffer(ctx context.Context, dev *usbfs.Device, hello proto.Hello, a
 	}
 	fmt.Printf("mirroring: %s\n", pipe.sender.Grid())
 
+	// Drain bulk IN for as long as we are streaming. Waiting for the reader to
+	// finish before returning keeps it off the file descriptor that the
+	// caller's deferred Close is about to take away.
+	ctx, cancel := context.WithCancel(ctx)
+	var resync atomic.Bool
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		watchEvents(ctx, dev, &resync)
+	}()
+	defer func() {
+		cancel()
+		<-done
+	}()
+
 	m := newMeter()
 	err = loop(ctx, *sf.fps, *sf.seconds, func() error {
+		if resync.Swap(false) {
+			fmt.Println("device reported losses — forcing a full refresh")
+			pipe.sender.Invalidate()
+		}
 		frame, ferr := src.Frame()
 		if ferr != nil {
 			return ferr

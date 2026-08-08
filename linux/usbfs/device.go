@@ -50,8 +50,12 @@ type deviceInfo struct {
 	maxPacket int
 }
 
-// Device is a claimed glint interface. It is not safe for concurrent use;
-// serialise access or give the reader its own Device.
+// Device is a claimed glint interface.
+//
+// Everything a transfer needs is either immutable after Open or built on the
+// caller's stack, so a reader on the bulk IN endpoint may run concurrently
+// with a writer on bulk OUT — which is how the streaming modes watch for STATS
+// events. Close must not race with a transfer in flight.
 type Device struct {
 	f         *os.File
 	path      string
