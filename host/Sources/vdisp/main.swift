@@ -136,7 +136,8 @@ do {
 
         let session = MirrorSession(
             dev: dev, hello: hello, landscape: landscape,
-            displayID: displayID)
+            displayID: displayID,
+            vivid: !CommandLine.arguments.contains("--flat"))
         try await session.start(fps: fps)
         if seconds > 0 {
             try await Task.sleep(

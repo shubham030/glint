@@ -9,6 +9,7 @@ final class MirrorSession: NSObject, SCStreamOutput, SCStreamDelegate {
     private let dev: USBDevice
     private let hello: Hello
     private let landscape: Bool
+    private let vivid: Bool
     private let ciContext = CIContext(options: [.cacheIntermediates: false])
     private var seq: UInt16 = 0
     private var frames = 0
@@ -21,12 +22,13 @@ final class MirrorSession: NSObject, SCStreamOutput, SCStreamDelegate {
 
     init(
         dev: USBDevice, hello: Hello, landscape: Bool,
-        displayID: CGDirectDisplayID? = nil
+        displayID: CGDirectDisplayID? = nil, vivid: Bool = false
     ) {
         self.dev = dev
         self.hello = hello
         self.landscape = landscape
         self.targetDisplayID = displayID
+        self.vivid = vivid
     }
 
     func start(fps: Int) async throws {
@@ -96,7 +98,7 @@ final class MirrorSession: NSObject, SCStreamOutput, SCStreamDelegate {
         guard let cg = ciContext.createCGImage(ci, from: ci.extent),
             let px = renderRGB565(
                 img: cg, width: hello.panelW, height: hello.panelH,
-                mode: .fill, landscape: landscape)
+                mode: .fill, landscape: landscape, vivid: vivid)
         else { return }
 
         do {
