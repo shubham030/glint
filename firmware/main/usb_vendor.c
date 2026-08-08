@@ -166,11 +166,13 @@ static bool header_is_sane(const glint_tile_hdr_t *hdr, uint32_t decoded_len)
     if (hdr->w == 0 || hdr->h == 0 || hdr->payload_len == 0) {
         return false;
     }
-    if (decoded_len > BOARD_MAX_TILE_LEN) {
-        return false;
-    }
+    /* Bound the geometry before trusting decoded_len: w*h*2 is computed in
+     * uint32 and a crafted 16-bit w/h pair could wrap it to a small value. */
     if (hdr->x + hdr->w > BOARD_LCD_H_RES ||
         hdr->y + hdr->h > BOARD_LCD_V_RES) {
+        return false;
+    }
+    if (decoded_len > BOARD_MAX_TILE_LEN) {
         return false;
     }
     switch (hdr->fmt) {
@@ -292,9 +294,10 @@ static void rx_task(void *arg)
                     }
                 }
                 if (!ok || xQueueSend(s_tile_queue, &cur, 0) != pdTRUE) {
-                    if (ok) {
-                        s_stats.tiles_dropped++;
-                    }
+                    /* Counted as a drop either way: this region of the panel is
+                     * now stale, and tiles_dropped is the counter the host
+                     * watches to trigger a full refresh. */
+                    s_stats.tiles_dropped++;
                     free(cur);
                 } else {
                     s_stats.tiles_rx++;
