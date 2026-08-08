@@ -41,5 +41,15 @@ func createVirtualDisplay(
             refreshRate: 30)
     ]
     guard display.apply(settings) else { return nil }
+
+    /* WindowServer may bring a new display up mirroring the main one —
+     * force it to extend instead. */
+    var config: CGDisplayConfigRef?
+    if CGBeginDisplayConfiguration(&config) == .success {
+        CGConfigureDisplayMirrorOfDisplay(
+            config, display.displayID, kCGNullDirectDisplay)
+        CGCompleteDisplayConfiguration(config, .permanently)
+    }
+
     return (display, display.displayID)
 }

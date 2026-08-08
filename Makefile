@@ -22,6 +22,14 @@ hello: host
 bars: host
 	./host/.build/release/vdisp bars --seconds 10 --fps 10
 
+# The virtual display lives exactly as long as this process — keep it in a
+# terminal tab (or ask for the LaunchAgent setup to run it at login).
+display: host
+	./host/.build/release/vdisp display
+
+mirror: host
+	./host/.build/release/vdisp mirror --landscape
+
 clean:
 	cd firmware && rm -rf build
 	cd host && swift package clean

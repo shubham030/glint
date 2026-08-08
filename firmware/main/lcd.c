@@ -132,6 +132,9 @@ esp_err_t lcd_init(void)
     ESP_RETURN_ON_ERROR(esp_lcd_panel_init(s_panel), TAG, "init");
     ESP_RETURN_ON_ERROR(esp_lcd_panel_invert_color(s_panel, true), TAG,
                         "invert");
+    ESP_RETURN_ON_ERROR(
+        esp_lcd_panel_mirror(s_panel, BOARD_LCD_MIRROR_X, BOARD_LCD_MIRROR_Y),
+        TAG, "mirror");
     ESP_RETURN_ON_ERROR(esp_lcd_panel_disp_on_off(s_panel, true), TAG,
                         "disp on");
     return ESP_OK;

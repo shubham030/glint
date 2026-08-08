@@ -50,6 +50,12 @@ func renderRGB565(
     ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
     ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
 
+    /* TEMP: pre-mirror panel X to compensate the ST7796's mirrored scan.
+     * The real fix (esp_lcd_panel_mirror, mapcast parity) is committed in
+     * firmware but unflashed — needs the UART cable. Remove after flashing. */
+    ctx.translateBy(x: CGFloat(width), y: 0)
+    ctx.scaleBy(x: -1, y: 1)
+
     /* Logical drawing space: the panel as the viewer holds it. */
     var spaceW = width
     var spaceH = height
