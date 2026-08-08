@@ -105,10 +105,10 @@ func (s *TileSender) Send(ctx context.Context, c Conn, px []uint16, forceFull bo
 	full := forceFull || !s.primed
 	s.runs = s.runs[:0]
 	st.Tiles = s.markDirty(px, full)
-	st.Packets = len(s.runs)
 
 	for i := range s.runs {
 		if err := ctx.Err(); err != nil {
+			s.primed = false
 			return st, err
 		}
 		flags := uint16(0)
@@ -121,8 +121,12 @@ func (s *TileSender) Send(ctx context.Context, c Conn, px []uint16, forceFull bo
 		n, err := s.sendRun(ctx, c, s.runs[i], px, flags)
 		st.Bytes += n
 		if err != nil {
+			// The hashes now claim tiles the panel never received, so the
+			// next frame has to be a full refresh.
+			s.primed = false
 			return st, err
 		}
+		st.Packets++
 	}
 
 	if len(s.runs) > 0 {
@@ -172,10 +176,12 @@ func (s *TileSender) sendRun(ctx context.Context, c Conn, r run, px []uint16, fl
 	pix := s.pixels(r, px)
 	format, body := FmtRGB565, []byte(nil)
 	if s.rle {
-		// Only worth it when it actually shrinks the payload — a photo tile
-		// encodes larger than raw.
-		if enc := AppendRLE(s.rleBuf[:0], pix); len(enc) < len(pix)*2 {
-			s.rleBuf, format, body = enc, FmtRGB565RLE, enc
+		enc := AppendRLE(s.rleBuf[:0], pix)
+		s.rleBuf = enc // keep the buffer even when the encoding is discarded
+		// Only worth sending when it actually shrinks the payload — a photo
+		// tile encodes larger than raw.
+		if len(enc) < len(pix)*2 {
+			format, body = FmtRGB565RLE, enc
 		}
 	}
 	payloadLen := len(pix) * 2

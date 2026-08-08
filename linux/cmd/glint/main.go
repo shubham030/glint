@@ -51,6 +51,12 @@ func run(args []string) error {
 		fmt.Print(usage)
 		return nil
 	}
+	// Reject a typo before opening the device, so it reports the typo rather
+	// than "no glint device on the USB bus".
+	if !modes[mode] {
+		fmt.Fprint(os.Stderr, usage)
+		return fmt.Errorf("unknown mode %q", mode)
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -69,6 +75,12 @@ func run(args []string) error {
 		hello, dev.Speed(), dev.MaxPacketSize(), dev.Path())
 
 	return dispatch(ctx, dev, hello, mode, rest)
+}
+
+// modes is the set of accepted verbs, kept beside dispatch.
+var modes = map[string]bool{
+	"hello": true, "bars": true, "image": true, "fb": true,
+	"stats": true, "touch": true, "backlight": true, "sleep": true,
 }
 
 func dispatch(ctx context.Context, dev *usbfs.Device, hello proto.Hello, mode string, args []string) error {
