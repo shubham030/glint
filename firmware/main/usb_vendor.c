@@ -10,6 +10,7 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "lcd.h"
+#include "rle.h"
 #include "tinyusb.h"
 #include "tusb.h"
 
@@ -110,7 +111,8 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage,
             .proto_ver = GLINT_PROTO_VER,
             .panel_w = BOARD_LCD_H_RES,
             .panel_h = BOARD_LCD_V_RES,
-            .fmt_mask = 1u << GLINT_FMT_RGB565,
+            .fmt_mask = (1u << GLINT_FMT_RGB565) |
+                        (1u << GLINT_FMT_RGB565_RLE),
             .max_tile_len = BOARD_MAX_TILE_LEN,
             .touch_points = 2,
             .rsvd = 0,
@@ -155,6 +157,34 @@ typedef enum {
     RX_PAYLOAD,
 } rx_state_t;
 
+/* Compressed payloads land here before being expanded into the tile buffer.
+ * One RX task, so one scratch buffer. */
+static uint8_t *s_rle_scratch;
+
+static bool header_is_sane(const glint_tile_hdr_t *hdr, uint32_t decoded_len)
+{
+    if (hdr->w == 0 || hdr->h == 0 || hdr->payload_len == 0) {
+        return false;
+    }
+    if (decoded_len > BOARD_MAX_TILE_LEN) {
+        return false;
+    }
+    if (hdr->x + hdr->w > BOARD_LCD_H_RES ||
+        hdr->y + hdr->h > BOARD_LCD_V_RES) {
+        return false;
+    }
+    switch (hdr->fmt) {
+    case GLINT_FMT_RGB565:
+        return hdr->payload_len == decoded_len;
+    case GLINT_FMT_RGB565_RLE:
+        /* Compressed data that claims to be bigger than the raw tile is either
+         * corrupt or pointless; either way, refuse it. */
+        return s_rle_scratch != NULL && hdr->payload_len <= decoded_len;
+    default:
+        return false;
+    }
+}
+
 static void rx_task(void *arg)
 {
     (void)arg;
@@ -163,8 +193,13 @@ static void rx_task(void *arg)
     uint8_t hdr_buf[sizeof(glint_tile_hdr_t)];
     size_t hdr_fill = 0;
     glint_tile_msg_t *cur = NULL; /* NULL in RX_PAYLOAD = sink (alloc failed) */
-    uint32_t want = 0;
+    uint8_t *dst_base = NULL;     /* where this payload accumulates */
+    uint32_t want = 0;            /* wire bytes expected */
+    uint32_t decoded_len = 0;
+    uint16_t fmt = GLINT_FMT_RGB565;
     size_t pay_fill = 0;
+    bool have_seq = false;
+    uint16_t last_seq = 0;
 
     for (;;) {
         if (tud_vendor_available() == 0) {
@@ -191,13 +226,8 @@ static void rx_task(void *arg)
             }
             hdr_fill = 0;
 
-            const bool sane = hdr.fmt == GLINT_FMT_RGB565 &&
-                              hdr.payload_len > 0 &&
-                              hdr.payload_len <= BOARD_MAX_TILE_LEN &&
-                              hdr.payload_len == (uint32_t)hdr.w * hdr.h * 2 &&
-                              hdr.x + hdr.w <= BOARD_LCD_H_RES &&
-                              hdr.y + hdr.h <= BOARD_LCD_V_RES;
-            if (!sane) {
+            decoded_len = (uint32_t)hdr.w * hdr.h * 2;
+            if (!header_is_sane(&hdr, decoded_len)) {
                 ESP_LOGW(TAG, "insane tile %ux%u@%u,%u fmt=%u len=%lu",
                          hdr.w, hdr.h, hdr.x, hdr.y, hdr.fmt,
                          (unsigned long)hdr.payload_len);
@@ -205,41 +235,105 @@ static void rx_task(void *arg)
                 continue; /* header was valid-magic garbage; rescan stream */
             }
 
-            cur = heap_caps_malloc(sizeof(glint_tile_msg_t) + hdr.payload_len,
+            /* A sequence that neither repeats nor advances by one means tiles
+             * went missing in flight; the host watches this counter and
+             * responds with a full refresh. */
+            if (have_seq && hdr.seq != last_seq &&
+                hdr.seq != (uint16_t)(last_seq + 1)) {
+                s_stats.seq_gaps++;
+            }
+            last_seq = hdr.seq;
+            have_seq = true;
+
+            fmt = hdr.fmt;
+            cur = heap_caps_malloc(sizeof(glint_tile_msg_t) + decoded_len,
                                    MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
             if (cur == NULL) {
                 ESP_LOGE(TAG, "tile alloc %lu failed",
-                         (unsigned long)hdr.payload_len);
+                         (unsigned long)decoded_len);
                 s_stats.tiles_dropped++;
-                /* fall through to payload state with a null sink */
+                dst_base = NULL; /* sink the payload */
             } else {
                 cur->hdr = hdr;
+                /* The LCD task only ever sees raw RGB565. */
+                cur->hdr.fmt = GLINT_FMT_RGB565;
+                cur->hdr.payload_len = decoded_len;
+                dst_base = (fmt == GLINT_FMT_RGB565_RLE) ? s_rle_scratch
+                                                         : cur->payload;
             }
             want = hdr.payload_len;
             pay_fill = 0;
             state = RX_PAYLOAD;
         } else {
             uint8_t sink[512];
-            uint8_t *dst = (cur != NULL) ? cur->payload + pay_fill : sink;
-            const size_t room = (cur != NULL) ? (want - pay_fill)
-                                              : MIN(sizeof(sink),
-                                                    (size_t)(want - pay_fill));
+            uint8_t *dst = (dst_base != NULL) ? dst_base + pay_fill : sink;
+            const size_t room = (dst_base != NULL)
+                                    ? (want - pay_fill)
+                                    : MIN(sizeof(sink),
+                                          (size_t)(want - pay_fill));
             const uint32_t got = tud_vendor_read(dst, room);
             pay_fill += got;
 
-            if (pay_fill >= want) {
-                if (cur != NULL) {
-                    if (xQueueSend(s_tile_queue, &cur, 0) != pdTRUE) {
-                        free(cur);
-                        s_stats.tiles_dropped++;
-                    } else {
-                        s_stats.tiles_rx++;
-                    }
-                    cur = NULL;
-                }
-                state = RX_HDR;
+            if (pay_fill < want) {
+                continue;
             }
+
+            if (cur != NULL) {
+                bool ok = true;
+                if (fmt == GLINT_FMT_RGB565_RLE) {
+                    const int px = rle_decode(s_rle_scratch, want,
+                                              (uint16_t *)cur->payload,
+                                              decoded_len / 2);
+                    ok = px == (int)(decoded_len / 2);
+                    if (!ok) {
+                        ESP_LOGW(TAG, "bad RLE stream (%lu bytes)",
+                                 (unsigned long)want);
+                        s_stats.resyncs++;
+                    }
+                }
+                if (!ok || xQueueSend(s_tile_queue, &cur, 0) != pdTRUE) {
+                    if (ok) {
+                        s_stats.tiles_dropped++;
+                    }
+                    free(cur);
+                } else {
+                    s_stats.tiles_rx++;
+                }
+                cur = NULL;
+            }
+            dst_base = NULL;
+            state = RX_HDR;
         }
+    }
+}
+
+/* --------------------------------------------------------------- stats -- */
+
+/* Report only when something changed: an idle link should be silent. */
+static void stats_task(void *arg)
+{
+    (void)arg;
+    glint_usb_stats_t last = {0};
+
+    for (;;) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        const uint32_t dropped = s_stats.tiles_dropped + s_stats.seq_gaps;
+        if (dropped == last.tiles_dropped + last.seq_gaps &&
+            s_stats.resyncs == last.resyncs) {
+            continue;
+        }
+        last = s_stats;
+
+        const glint_evt_t evt = {
+            .magic = GLINT_MAGIC_EVT,
+            .type = GLINT_EVT_STATS,
+            .id = 0,
+            .x = (uint16_t)(dropped > 0xFFFF ? 0xFFFF : dropped),
+            .y = (uint16_t)(s_stats.resyncs > 0xFFFF ? 0xFFFF
+                                                    : s_stats.resyncs),
+            .rsvd = 0,
+        };
+        usb_vendor_send_event(&evt);
     }
 }
 
@@ -267,9 +361,22 @@ esp_err_t usb_vendor_init(QueueHandle_t tile_queue)
     };
     ESP_RETURN_ON_ERROR(tinyusb_driver_install(&tusb_cfg), TAG, "tusb install");
 
+    s_rle_scratch = heap_caps_malloc(BOARD_MAX_TILE_LEN,
+                                     MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (s_rle_scratch == NULL) {
+        /* Not fatal: header_is_sane() then rejects fmt 1 and the host, which
+         * reads fmt_mask, keeps sending raw. */
+        ESP_LOGW(TAG, "no RLE scratch buffer — compressed tiles disabled");
+    }
+
     const BaseType_t ok = xTaskCreatePinnedToCore(rx_task, "usb_rx", 4096, NULL,
                                                   10, NULL, 1);
     ESP_RETURN_ON_FALSE(ok == pdPASS, ESP_ERR_NO_MEM, TAG, "rx task");
+
+    ESP_RETURN_ON_FALSE(
+        xTaskCreatePinnedToCore(stats_task, "usb_stats", 3072, NULL, 3, NULL, 0)
+            == pdPASS,
+        ESP_ERR_NO_MEM, TAG, "stats task");
 
     ESP_LOGI(TAG, "vendor interface up (vid=%04x pid=%04x)", GLINT_USB_VID,
              GLINT_USB_PID);

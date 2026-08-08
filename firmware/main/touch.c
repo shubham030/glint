@@ -43,31 +43,27 @@ static void touch_task(void *arg)
     for (;;) {
         esp_lcd_touch_read_data(s_tp);
 
-        uint16_t xs[MAX_POINTS], ys[MAX_POINTS];
+        esp_lcd_touch_point_data_t pts[MAX_POINTS] = {0};
         uint8_t count = 0;
-        const bool any = esp_lcd_touch_get_coordinates(
-            s_tp, xs, ys, NULL, &count, MAX_POINTS);
+        esp_lcd_touch_get_data(s_tp, pts, &count, MAX_POINTS);
 
         bool seen[MAX_POINTS] = {0};
-        if (any) {
-            for (uint8_t i = 0; i < count && i < MAX_POINTS; i++) {
-                seen[i] = true;
-                if (!prev[i].down) {
-                    emit(GLINT_EVT_DOWN, i, xs[i], ys[i]);
+        for (uint8_t i = 0; i < count && i < MAX_POINTS; i++) {
+            seen[i] = true;
+            if (!prev[i].down) {
+                emit(GLINT_EVT_DOWN, i, pts[i].x, pts[i].y);
+            } else {
+                const int dx = (int)pts[i].x - (int)prev[i].x;
+                const int dy = (int)pts[i].y - (int)prev[i].y;
+                if (dx * dx + dy * dy >= MOVE_THRESHOLD * MOVE_THRESHOLD) {
+                    emit(GLINT_EVT_MOVE, i, pts[i].x, pts[i].y);
                 } else {
-                    const int dx = (int)xs[i] - (int)prev[i].x;
-                    const int dy = (int)ys[i] - (int)prev[i].y;
-                    if (dx * dx + dy * dy >=
-                        MOVE_THRESHOLD * MOVE_THRESHOLD) {
-                        emit(GLINT_EVT_MOVE, i, xs[i], ys[i]);
-                    } else {
-                        continue; /* keep prev coords: no drift */
-                    }
+                    continue; /* keep prev coords: no drift */
                 }
-                prev[i].down = true;
-                prev[i].x = xs[i];
-                prev[i].y = ys[i];
             }
+            prev[i].down = true;
+            prev[i].x = pts[i].x;
+            prev[i].y = pts[i].y;
         }
 
         for (uint8_t i = 0; i < MAX_POINTS; i++) {

@@ -17,8 +17,9 @@ typedef struct {
 
 typedef struct {
     uint32_t tiles_rx;
-    uint32_t tiles_dropped; /* queue full */
-    uint32_t resyncs;       /* bad magic recoveries */
+    uint32_t tiles_dropped; /* queue full, alloc failure, or bad RLE */
+    uint32_t resyncs;       /* bad magic / insane header recoveries */
+    uint32_t seq_gaps;      /* frames the host sent that never arrived */
 } glint_usb_stats_t;
 
 /* Install TinyUSB with the vendor interface and start the RX parser task.
