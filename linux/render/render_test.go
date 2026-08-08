@@ -110,8 +110,8 @@ func TestConverterHonoursStride(t *testing.T) {
 	}
 	const stride = 16
 	src := make([]byte, stride*2)
-	src[2] = 0xff             // row 0, pixel 0: red
-	src[stride+4+1] = 0xff    // row 1, pixel 1: green
+	src[2] = 0xff          // row 0, pixel 0: red
+	src[stride+4+1] = 0xff // row 1, pixel 1: green
 	dst := image.NewRGBA(image.Rect(0, 0, 2, 2))
 	if err := c.ToRGBA(src, stride, dst); err != nil {
 		t.Fatal(err)
