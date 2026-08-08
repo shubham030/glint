@@ -59,11 +59,9 @@ final class MirrorSession: NSObject, SCStreamOutput, SCStreamDelegate {
             display: display, excludingWindows: [])
 
         let cfg = SCStreamConfiguration()
-        /* Capture at 2× the panel's logical geometry and downscale ourselves
-         * (Lanczos + sharpen) — much crisper small text than the stream
-         * scaler, and the virtual desktop is exactly 2× anyway. */
-        cfg.width = (landscape ? hello.panelH : hello.panelW) * 2
-        cfg.height = (landscape ? hello.panelW : hello.panelH) * 2
+        /* Capture at the panel's logical (viewer) geometry; SCStream scales. */
+        cfg.width = landscape ? hello.panelH : hello.panelW
+        cfg.height = landscape ? hello.panelW : hello.panelH
         cfg.pixelFormat = kCVPixelFormatType_32BGRA
         cfg.minimumFrameInterval = CMTime(value: 1, timescale: Int32(fps))
         cfg.showsCursor = true
@@ -96,20 +94,8 @@ final class MirrorSession: NSObject, SCStreamOutput, SCStreamDelegate {
             let pb = sb.imageBuffer
         else { return }
 
-        let logicalW = landscape ? hello.panelH : hello.panelW
-        let logicalH = landscape ? hello.panelW : hello.panelH
         let ci = CIImage(cvPixelBuffer: pb)
-            .applyingFilter(
-                "CILanczosScaleTransform",
-                parameters: [
-                    kCIInputScaleKey: 0.5, kCIInputAspectRatioKey: 1.0,
-                ])
-            .applyingFilter(
-                "CISharpenLuminance",
-                parameters: [kCIInputSharpnessKey: 0.4])
-        let rect = CGRect(
-            x: 0, y: 0, width: CGFloat(logicalW), height: CGFloat(logicalH))
-        guard let cg = ciContext.createCGImage(ci, from: rect),
+        guard let cg = ciContext.createCGImage(ci, from: ci.extent),
             let px = renderRGB565(
                 img: cg, width: hello.panelW, height: hello.panelH,
                 mode: .fill, landscape: landscape, vivid: vivid)

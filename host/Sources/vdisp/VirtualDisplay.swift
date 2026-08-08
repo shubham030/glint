@@ -34,9 +34,6 @@ func createVirtualDisplay(
     guard let display = CGVirtualDisplay(descriptor: desc) else { return nil }
 
     let settings = CGVirtualDisplaySettings()
-    /* hiDPI is ignored for virtual displays on macOS 26.5 — tested with both
-     * pixel- and point-sized modes; WindowServer always runs 1x. Crispness
-     * is recovered host-side instead (Lanczos + sharpen in the capture). */
     settings.hiDPI = hiDPI ? 1 : 0
     settings.modes = [
         CGVirtualDisplayMode(
