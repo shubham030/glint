@@ -1,12 +1,19 @@
 import CoreGraphics
 import Foundation
 
-// vdisp — M0 host CLI. Handshake, then colour bars (or one-off commands).
+// vdisp — host CLI. Every mode starts with the HELLO handshake and adapts to
+// the panel geometry the device reports.
 //
-//   vdisp hello
-//   vdisp bars [--seconds N] [--fps N]
+//   vdisp hello                                      probe + print handshake
+//   vdisp bars [--seconds N] [--fps N]               M0 transport test
+//   vdisp image <path> [--fill] [--landscape]        M1 static image
+//   vdisp mirror [--fps N] [--landscape]             M2 mirror the main display
+//   vdisp display [--portrait] [--width W --height H --1x]
+//                 [--sat P] [--con P] [--flat]       M3 extended virtual display
 //   vdisp backlight <0-255>
 //   vdisp sleep <0|1>
+//
+// Session modes run until Ctrl-C unless --seconds is given.
 
 func fail(_ msg: String) -> Never {
     FileHandle.standardError.write(Data(("vdisp: " + msg + "\n").utf8))
@@ -49,6 +56,19 @@ func sendFrame(
         y += h
     }
     return sent
+}
+
+/// Run a capture session until Ctrl-C, or for --seconds if given.
+func runSession(_ session: MirrorSession, fps: Int, seconds: Int) async throws {
+    try await session.start(fps: fps)
+    if seconds > 0 {
+        try await Task.sleep(nanoseconds: UInt64(seconds) * 1_000_000_000)
+        await session.stop()
+    } else {
+        while true {
+            try await Task.sleep(nanoseconds: 1_000_000_000)
+        }
+    }
 }
 
 let mode = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "bars"
@@ -140,34 +160,16 @@ do {
             displayID: displayID,
             satPct: flat ? 100 : argValue("--sat", default: 130),
             conPct: flat ? 100 : argValue("--con", default: 110))
-        try await session.start(fps: fps)
-        if seconds > 0 {
-            try await Task.sleep(
-                nanoseconds: UInt64(seconds) * 1_000_000_000)
-            await session.stop()
-        } else {
-            while true {
-                try await Task.sleep(nanoseconds: 1_000_000_000)
-            }
-        }
+        try await runSession(session, fps: fps, seconds: seconds)
         _ = vdisplay /* keep the display alive for the session */
 
     case "mirror":
         let fps = max(1, argValue("--fps", default: 12))
-        let seconds = argValue("--seconds", default: 0) /* 0 = until ^C */
+        let seconds = argValue("--seconds", default: 0)
         let landscape = CommandLine.arguments.contains("--landscape")
         let session = MirrorSession(
             dev: dev, hello: hello, landscape: landscape)
-        try await session.start(fps: fps)
-        if seconds > 0 {
-            try await Task.sleep(
-                nanoseconds: UInt64(seconds) * 1_000_000_000)
-            await session.stop()
-        } else {
-            while true {
-                try await Task.sleep(nanoseconds: 1_000_000_000)
-            }
-        }
+        try await runSession(session, fps: fps, seconds: seconds)
 
     case "bars":
         let seconds = argValue("--seconds", default: 10)

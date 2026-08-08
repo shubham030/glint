@@ -10,3 +10,6 @@ firmware/dependencies.lock
 # SwiftPM
 host/.build/
 host/.swiftpm/
+
+nohup.out
+*.log

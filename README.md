@@ -252,18 +252,34 @@ The Mac app doesn't change at all, provided the handshake in §5.1 is honoured.
 
 ## 9. Milestones
 
-| | | Proves |
-|---|---|---|
-| M0 | Colour bars pushed over USB from a Mac CLI tool | Transport + framing |
-| M1 | Static PNG → full-frame → panel | Format conversion, SPI throughput |
-| M2 | ScreenCaptureKit on the **main** display → panel | Capture + convert pipeline |
-| M3 | Swap in CGVirtualDisplay | The private-API half |
-| M4 | Dirty-rect tiling | Usable frame rate |
-| M5 | FT6336 → CGEventPost | Input loop |
-| M6 | DSI panel swap | §8 |
+| | | Proves | Status |
+|---|---|---|---|
+| M0 | Colour bars pushed over USB from a Mac CLI tool | Transport + framing | ✅ 14.7 fps, 4.5 MB/s (HS) |
+| M1 | Static PNG → full-frame → panel | Format conversion, SPI throughput | ✅ fit/fill/landscape, EXIF-aware |
+| M2 | ScreenCaptureKit on the **main** display → panel | Capture + convert pipeline | ✅ 11.3 fps @ 12 cap |
+| M3 | Swap in CGVirtualDisplay | The private-API half | ✅ extended desktop, 960×640 (see HARDWARE.md for macOS mode limits) |
+| M4 | Dirty-rect tiling | Usable frame rate | — |
+| M5 | FT6336 → CGEventPost | Input loop | — (I2C pins: see carplay/hardware schematic) |
+| M6 | DSI panel swap | §8 | — |
 
 M0–M2 need no private APIs and are where most of the risk lives. Don't touch
 `CGVirtualDisplay` until M2 works.
+
+### Usage
+
+```
+make display            # extended desktop on the panel (landscape, 960×640)
+make display-portrait   # panel standing upright (640×960)
+make mirror             # mirror the main display instead
+make bars               # M0 transport test
+./host/.build/release/vdisp image <path> [--fill] [--landscape]
+./host/.build/release/vdisp backlight <0-255>
+```
+
+The virtual display lives exactly as long as the `vdisp display` process.
+Colour shaping: `--sat P` / `--con P` (percent, defaults 130/110), `--flat`
+for none. Desktop size: `--width W --height H --1x` (see HARDWARE.md for
+which modes macOS accepts).
 
 ---
 
