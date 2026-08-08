@@ -28,6 +28,17 @@ func loadImageRGB565(
             src, 0, opts as CFDictionary)
     else { return nil }
 
+    return renderRGB565(
+        img: img, width: width, height: height, mode: mode,
+        landscape: landscape)
+}
+
+/// Scale + optionally rotate a CGImage onto a width×height black canvas and
+/// convert to RGB565 host-order. Shared by file loading and screen mirroring.
+func renderRGB565(
+    img: CGImage, width: Int, height: Int,
+    mode: FitMode = .fit, landscape: Bool = false
+) -> [UInt16]? {
     guard
         let ctx = CGContext(
             data: nil, width: width, height: height,

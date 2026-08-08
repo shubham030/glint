@@ -96,6 +96,23 @@ do {
         let n = try sendFrame(dev, hello, px: px, seq: 0, fullRefresh: true)
         print("sent \(path) (\(n) bytes)")
 
+    case "mirror":
+        let fps = max(1, argValue("--fps", default: 12))
+        let seconds = argValue("--seconds", default: 0) /* 0 = until ^C */
+        let landscape = CommandLine.arguments.contains("--landscape")
+        let session = MirrorSession(
+            dev: dev, hello: hello, landscape: landscape)
+        try await session.start(fps: fps)
+        if seconds > 0 {
+            try await Task.sleep(
+                nanoseconds: UInt64(seconds) * 1_000_000_000)
+            await session.stop()
+        } else {
+            while true {
+                try await Task.sleep(nanoseconds: 1_000_000_000)
+            }
+        }
+
     case "bars":
         let seconds = argValue("--seconds", default: 10)
         let fps = max(1, argValue("--fps", default: 10))
@@ -141,7 +158,7 @@ do {
 
     default:
         fail(
-            "unknown mode '\(mode)' — use hello | bars | image | backlight | sleep"
+            "unknown mode '\(mode)' — use hello | bars | image | mirror | backlight | sleep"
         )
     }
 } catch {
