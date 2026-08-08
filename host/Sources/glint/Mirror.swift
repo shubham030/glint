@@ -149,8 +149,13 @@ final class MirrorSession: NSObject, SCStreamOutput, SCStreamDelegate {
                 Data("glint: panel disconnected — exiting\n".utf8))
             exit(3)
         } catch {
+            /* A frame can fail part-written, and the hashes were already
+             * updated for every tile in it — including ones the panel never
+             * received. Without this the missed regions would stay stale
+             * until their content happened to change again. */
+            tiles.invalidate()
             FileHandle.standardError.write(
-                Data("glint: send failed: \(error)\n".utf8))
+                Data("glint: send failed (\(error)) — resyncing\n".utf8))
         }
     }
 

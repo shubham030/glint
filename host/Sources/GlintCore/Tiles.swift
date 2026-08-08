@@ -50,8 +50,10 @@ public final class TileSender {
             + (useRLE ? ", RLE when smaller" : "")
     }
 
-    /// Forces the next frame to be a full refresh — used on connect, on resume,
-    /// and whenever the device reports it dropped tiles.
+    /// Forces the next frame to be a full refresh. Required on connect, on
+    /// resume, when the device reports dropped tiles, and — easy to miss —
+    /// whenever a write fails: the hashes are updated during `packets(px:)`, so
+    /// tiles from a part-written frame are already recorded as delivered.
     public func invalidate() {
         primed = false
     }
