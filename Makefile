@@ -27,6 +27,10 @@ bars: host
 display: host
 	./host/.build/release/vdisp display
 
+# Panel standing upright: 640x960 desktop, exact 2:1 onto 320x480
+display-portrait: host
+	./host/.build/release/vdisp display --portrait
+
 mirror: host
 	./host/.build/release/vdisp mirror --landscape
 

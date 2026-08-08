@@ -4,10 +4,19 @@
 
 The design doc's board is real and on the desk — it's the same unit the
 carplay/mapcast project targets (ESP32-P4 rev v1.3, 16MB flash, CH343
-USB-UART bridge on the second Type-C). It is *not* in Waveshare's public wiki
-catalogue (checked 2026-08-08 — their P4 touch-LCD lineup lists only
-3.4C/4B/4C/7B), so all pin facts below come from the proven mapcast firmware
-(`carplay/firmware/mapcast/main/display.c`), not vendor docs.
+USB-UART bridge on the second Type-C). Product page:
+https://www.waveshare.com/esp32-p4-wifi6-touch-lcd-3.5.htm (confirms ST7796
+SPI + FT6336 I2C, reserved 15-pin DSI pad, OV5647 camera, ES8311 codec). The
+wiki page was missing from Waveshare's AllPages index when checked 2026-08-08,
+so pin facts below come from the proven mapcast firmware
+(`carplay/firmware/mapcast/main/display.c`); the CarPlay schematic PDF lives
+at `carplay/hardware/` (source for FT6336 I2C pins when M5 needs them).
+
+**macOS virtual-display mode limits (26.5):** WindowServer halves any mode
+whose smallest dimension is under ~500 px and refuses to switch back
+(CGError 1001). Accepted exact: landscape 960×640 (2:1, default) and 800×534
+(1.67:1); portrait 640×960 (2:1, default). Panel-native 480×320/320×480 is
+not achievable.
 
 The doc's §3 analysis stands for this board: USB 2.0 HS feeds an ~8–10 MB/s
 SPI panel — SPI is the bottleneck, dirty-rect tiling is the design driver.
