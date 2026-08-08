@@ -81,12 +81,16 @@ do {
 
     case "image":
         guard CommandLine.arguments.count > 2 else {
-            fail("usage: vdisp image <path>")
+            fail("usage: vdisp image <path> [--fill] [--landscape]")
         }
         let path = CommandLine.arguments[2]
+        let mode: FitMode =
+            CommandLine.arguments.contains("--fill") ? .fill : .fit
+        let landscape = CommandLine.arguments.contains("--landscape")
         guard
             let px = loadImageRGB565(
-                path: path, width: hello.panelW, height: hello.panelH)
+                path: path, width: hello.panelW, height: hello.panelH,
+                mode: mode, landscape: landscape)
         else { fail("could not decode '\(path)'") }
         try dev.controlWrite(.reset)
         let n = try sendFrame(dev, hello, px: px, seq: 0, fullRefresh: true)
