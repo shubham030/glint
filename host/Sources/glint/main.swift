@@ -15,6 +15,7 @@ import Foundation
 //                                                    M3/M4 extended display
 //   glint touch [--calibrate]                        M5 touch, raw or guided
 //   glint stats                                      device counters
+//   glint doctor                                     check device + permissions
 //   glint backlight <0-255>
 //   glint sleep <0|1>
 //
@@ -33,34 +34,16 @@ func argValue(_ name: String, default def: Int) -> Int {
     return v
 }
 
-/// Send one full frame as max_tile-sized strips.
-func sendFrame(
-    _ dev: USBDevice, _ hello: Hello, px: [UInt16], seq: UInt16,
-    fullRefresh: Bool
+/// Writes one whole frame, reusing the tiling path so every mode shares one
+/// encoder (and gets RLE for free where the device supports it).
+func sendFullFrame(
+    _ dev: USBDevice, _ tiles: TileSender, px: [UInt16]
 ) throws -> Int {
-    let stripH = hello.maxTileLen / (hello.panelW * 2)
-    var sent = 0
-    var y = 0
-    while y < hello.panelH {
-        let h = min(stripH, hello.panelH - y)
-        var flags: Glint.TileFlags = []
-        if fullRefresh { flags.insert(.fullRefresh) }
-        if y + h >= hello.panelH { flags.insert(.lastInFrame) }
-
-        let strip = Array(px[(y * hello.panelW)..<((y + h) * hello.panelW)])
-        var packet = tileHeader(
-            seq: seq, flags: flags,
-            x: 0, y: UInt16(y),
-            w: UInt16(hello.panelW), h: UInt16(h),
-            payloadLen: UInt32(strip.count * 2))
-        strip.withUnsafeBufferPointer {
-            packet.append(UnsafeRawBufferPointer($0).bindMemory(to: UInt8.self))
-        }
+    let (packets, stats) = tiles.packets(px: px, forceFull: true)
+    for packet in packets {
         try dev.bulkWrite(packet)
-        sent += packet.count
-        y += h
     }
-    return sent
+    return stats.bytes
 }
 
 /// Run a capture session until Ctrl-C, or for --seconds if given.
@@ -77,6 +60,12 @@ func runSession(_ session: MirrorSession, fps: Int, seconds: Int) async throws {
 }
 
 let mode = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "bars"
+
+/* Runs before any device is opened: it reports on a missing panel rather than
+ * failing on one. */
+if mode == "doctor" {
+    runDoctor()
+}
 
 /// Long-running modes wait for the panel; one-shot commands fail fast.
 let sessionModes: Set<String> = ["display", "mirror", "touch", "stats"]
@@ -125,8 +114,11 @@ do {
                 mode: mode, landscape: landscape)
         else { fail("could not decode '\(path)'") }
         try dev.controlWrite(.reset)
-        let n = try sendFrame(dev, hello, px: px, seq: 0, fullRefresh: true)
-        print("sent \(path) (\(n) bytes)")
+        let tiles = TileSender(
+            panelW: hello.panelW, panelH: hello.panelH,
+            maxTileLen: hello.maxTileLen, allowRLE: hello.supports(.rle))
+        let n = try sendFullFrame(dev, tiles, px: px)
+        print("sent \(path) (\(n) bytes on the wire)")
 
     case "display":
         /* Tiles make a typical frame ~18KB, so a higher cap costs little and
@@ -233,6 +225,11 @@ do {
 
         try dev.controlWrite(.reset)
 
+        /* A throughput test wants whole frames, not dirty tiles — and raw
+         * pixels, since colour bars would compress unrealistically well. */
+        let tiles = TileSender(
+            panelW: hello.panelW, panelH: hello.panelH,
+            maxTileLen: hello.maxTileLen, allowRLE: false)
         var seq: UInt16 = 0
         var sentBytes = 0
         let start = Date()
@@ -242,8 +239,7 @@ do {
             let frameStart = Date()
             let px = renderColorBars(
                 width: hello.panelW, height: hello.panelH, phase: Int(seq) * 4)
-            sentBytes += try sendFrame(
-                dev, hello, px: px, seq: seq, fullRefresh: seq == 0)
+            sentBytes += try sendFullFrame(dev, tiles, px: px)
             seq &+= 1
 
             if Date().timeIntervalSince(lastReport) >= 1 {
@@ -269,7 +265,8 @@ do {
 
     default:
         fail(
-            "unknown mode '\(mode)' — use hello | bars | image | mirror | display | backlight | sleep"
+            "unknown mode '\(mode)' — use doctor | hello | bars | image | "
+                + "mirror | display | touch | stats | backlight | sleep"
         )
     }
 } catch {
