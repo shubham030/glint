@@ -20,6 +20,10 @@ static const char *TAG = "usb_vendor";
 
 static QueueHandle_t s_tile_queue;
 static SemaphoreHandle_t s_rx_sem;
+
+/* Set from USB mount transitions and CMD_RESET; consumed by rx_task, which
+ * rewinds its byte-stream position. See the note above tud_mount_cb. */
+static volatile bool s_rx_reset;
 static glint_usb_stats_t s_stats;
 
 /* ---------------------------------------------------------------- desc -- */
@@ -130,6 +134,7 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage,
         while (xQueueReceive(s_tile_queue, &msg, 0) == pdTRUE) {
             free(msg);
         }
+        s_rx_reset = true; /* also rewind the byte-stream parser */
         return tud_control_status(rhport, request);
     }
 
@@ -143,6 +148,24 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage,
 }
 
 /* ----------------------------------------------------------------- rx -- */
+
+/* The parser holds position inside a tile across loop iterations, but the byte
+ * stream does not survive a cable swap or a host restart: whatever it was
+ * waiting for never arrives, and the next session's first bytes would be eaten
+ * as the tail of a dead payload. Both USB mount transitions and CMD_RESET
+ * therefore rewind it. (Without this it still recovers by rescanning for a
+ * magic, but garbles a frame first — and on this board cables get swapped
+ * constantly.) */
+
+void tud_mount_cb(void)
+{
+    s_rx_reset = true;
+}
+
+void tud_umount_cb(void)
+{
+    s_rx_reset = true;
+}
 
 void tud_vendor_rx_cb(uint8_t itf, uint8_t const *buffer, uint16_t bufsize)
 {
@@ -204,6 +227,25 @@ static void rx_task(void *arg)
     uint16_t last_seq = 0;
 
     for (;;) {
+        if (s_rx_reset) {
+            s_rx_reset = false;
+            state = RX_HDR;
+            hdr_fill = 0;
+            pay_fill = 0;
+            dst_base = NULL;
+            have_seq = false;
+            free(cur); /* owned here until enqueued; NULL is fine */
+            cur = NULL;
+            /* Drop stale bytes so the next header starts a clean transfer. */
+            uint8_t flush[64];
+            while (tud_vendor_available() > 0) {
+                if (tud_vendor_read(flush, sizeof(flush)) == 0) {
+                    break;
+                }
+            }
+            continue;
+        }
+
         if (tud_vendor_available() == 0) {
             xSemaphoreTake(s_rx_sem, pdMS_TO_TICKS(100));
             continue;
