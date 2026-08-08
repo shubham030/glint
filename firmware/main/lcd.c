@@ -2,23 +2,33 @@
 
 #include "board.h"
 
-#include "driver/ledc.h"
+#include "driver/gpio.h"
 #include "driver/spi_master.h"
 #include "esp_check.h"
 #include "esp_lcd_panel_io.h"
 #include "esp_lcd_panel_vendor.h"
 #include "esp_lcd_st7796.h"
 
+#if BOARD_BL_USE_LEDC
+#include "driver/ledc.h"
+#endif
+
+#if CONFIG_IDF_TARGET_ESP32S3
+#include "board_init_s3.h"
+#endif
+
 static const char *TAG = "lcd";
+
+static esp_lcd_panel_handle_t s_panel;
+static uint8_t s_bl_level = 200;
+
+#if BOARD_BL_USE_LEDC
 
 #define BL_LEDC_TIMER    LEDC_TIMER_1
 #define BL_LEDC_MODE     LEDC_LOW_SPEED_MODE
 #define BL_LEDC_CHANNEL  LEDC_CHANNEL_0
 #define BL_LEDC_DUTY_RES LEDC_TIMER_10_BIT
 #define BL_LEDC_FREQ_HZ  5000
-
-static esp_lcd_panel_handle_t s_panel;
-static uint8_t s_bl_level = 200;
 
 static esp_err_t backlight_init(void)
 {
@@ -42,6 +52,31 @@ static esp_err_t backlight_init(void)
     };
     return ledc_channel_config(&ch_cfg);
 }
+
+static void backlight_set(uint8_t level)
+{
+    const uint32_t duty = ((uint32_t)level * 1023u) / 255u;
+    ledc_set_duty(BL_LEDC_MODE, BL_LEDC_CHANNEL, duty);
+    ledc_update_duty(BL_LEDC_MODE, BL_LEDC_CHANNEL);
+}
+
+#else /* plain GPIO backlight, as mapcast drives the P4 board */
+
+static esp_err_t backlight_init(void)
+{
+    const gpio_config_t cfg = {
+        .pin_bit_mask = 1ULL << BOARD_PIN_LCD_BL,
+        .mode = GPIO_MODE_OUTPUT,
+    };
+    return gpio_config(&cfg);
+}
+
+static void backlight_set(uint8_t level)
+{
+    gpio_set_level(BOARD_PIN_LCD_BL, level > 0);
+}
+
+#endif
 
 esp_err_t lcd_init(void)
 {
@@ -74,10 +109,22 @@ esp_err_t lcd_init(void)
                                  &io_cfg, &io),
         TAG, "panel io");
 
+#if CONFIG_IDF_TARGET_ESP32S3
+    /* Waveshare's panel wants its own init table; the registry defaults are
+     * what mapcast proved on the P4 board, so P4 passes no vendor config. */
+    static const st7796_vendor_config_t vendor_cfg = {
+        .init_cmds = k_s3_panel_init,
+        .init_cmds_size =
+            sizeof(k_s3_panel_init) / sizeof(k_s3_panel_init[0]),
+    };
+#endif
     const esp_lcd_panel_dev_config_t panel_cfg = {
         .reset_gpio_num = BOARD_PIN_LCD_RST,
         .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_BGR,
         .bits_per_pixel = 16,
+#if CONFIG_IDF_TARGET_ESP32S3
+        .vendor_config = (void *)&vendor_cfg,
+#endif
     };
     ESP_RETURN_ON_ERROR(esp_lcd_new_panel_st7796(io, &panel_cfg, &s_panel), TAG,
                         "st7796");
@@ -98,9 +145,7 @@ esp_lcd_panel_handle_t lcd_panel(void)
 void lcd_backlight(uint8_t level)
 {
     s_bl_level = level;
-    const uint32_t duty = ((uint32_t)level * 1023u) / 255u;
-    ledc_set_duty(BL_LEDC_MODE, BL_LEDC_CHANNEL, duty);
-    ledc_update_duty(BL_LEDC_MODE, BL_LEDC_CHANNEL);
+    backlight_set(level);
 }
 
 void lcd_sleep(bool sleep)
@@ -108,10 +153,5 @@ void lcd_sleep(bool sleep)
     if (s_panel != NULL) {
         esp_lcd_panel_disp_on_off(s_panel, !sleep);
     }
-    if (sleep) {
-        ledc_set_duty(BL_LEDC_MODE, BL_LEDC_CHANNEL, 0);
-        ledc_update_duty(BL_LEDC_MODE, BL_LEDC_CHANNEL);
-    } else {
-        lcd_backlight(s_bl_level);
-    }
+    backlight_set(sleep ? 0 : s_bl_level);
 }

@@ -24,6 +24,7 @@
 #define BOARD_PIN_LCD_BL   GPIO_NUM_28
 #define BOARD_LCD_SPI_MODE 3
 #define BOARD_HAS_AXP2101  0
+#define BOARD_BL_USE_LEDC  0 /* plain GPIO, exactly as mapcast proved */
 
 #elif CONFIG_IDF_TARGET_ESP32S3
 
@@ -35,6 +36,7 @@
 #define BOARD_PIN_LCD_BL   GPIO_NUM_6
 #define BOARD_LCD_SPI_MODE 0
 #define BOARD_HAS_AXP2101  1
+#define BOARD_BL_USE_LEDC  1
 
 #define BOARD_PIN_I2C_SDA GPIO_NUM_8
 #define BOARD_PIN_I2C_SCL GPIO_NUM_7
