@@ -139,7 +139,7 @@ do {
             dev: dev, hello: hello, landscape: landscape,
             displayID: displayID,
             satPct: flat ? 100 : argValue("--sat", default: 130),
-            conPct: flat ? 100 : argValue("--con", default: 125))
+            conPct: flat ? 100 : argValue("--con", default: 110))
         try await session.start(fps: fps)
         if seconds > 0 {
             try await Task.sleep(
