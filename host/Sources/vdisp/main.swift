@@ -134,10 +134,12 @@ do {
                 + "mode \(m?.pixelWidth ?? 0)x\(m?.pixelHeight ?? 0) px")
         print("drag windows onto it; Ctrl-C removes it")
 
+        let flat = CommandLine.arguments.contains("--flat")
         let session = MirrorSession(
             dev: dev, hello: hello, landscape: landscape,
             displayID: displayID,
-            vivid: !CommandLine.arguments.contains("--flat"))
+            satPct: flat ? 100 : argValue("--sat", default: 130),
+            conPct: flat ? 100 : argValue("--con", default: 125))
         try await session.start(fps: fps)
         if seconds > 0 {
             try await Task.sleep(
