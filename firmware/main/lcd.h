@@ -12,5 +12,5 @@ esp_lcd_panel_handle_t lcd_panel(void);
 /* 0..255, mapped onto the LEDC duty range */
 void lcd_backlight(uint8_t level);
 
-/* true = panel + backlight off (VD_CMD_SLEEP), false = back on */
+/* true = panel + backlight off (GLINT_CMD_SLEEP), false = back on */
 void lcd_sleep(bool sleep);

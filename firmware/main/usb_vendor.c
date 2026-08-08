@@ -19,7 +19,7 @@ static const char *TAG = "usb_vendor";
 
 static QueueHandle_t s_tile_queue;
 static SemaphoreHandle_t s_rx_sem;
-static vd_usb_stats_t s_stats;
+static glint_usb_stats_t s_stats;
 
 /* ---------------------------------------------------------------- desc -- */
 
@@ -39,8 +39,8 @@ static const tusb_desc_device_t s_device_desc = {
     .bDeviceSubClass = 0x00,
     .bDeviceProtocol = 0x00,
     .bMaxPacketSize0 = CFG_TUD_ENDPOINT0_SIZE,
-    .idVendor = VD_USB_VID,
-    .idProduct = VD_USB_PID,
+    .idVendor = GLINT_USB_VID,
+    .idProduct = GLINT_USB_PID,
     .bcdDevice = 0x0001,
     .iManufacturer = STRID_MANUFACTURER,
     .iProduct = STRID_PRODUCT,
@@ -84,14 +84,14 @@ static const tusb_desc_device_qualifier_t s_qualifier = {
 static const char *s_string_desc[] = {
     (const char[]){0x09, 0x04}, /* 0: en-US */
     "shubham030",               /* 1: manufacturer */
-    "vdisp",                    /* 2: product */
-    "vd-000001",                /* 3: serial */
-    "vdisp vendor interface",   /* 4 */
+    "glint",                    /* 2: product */
+    "glint-000001",             /* 3: serial */
+    "glint vendor interface",   /* 4 */
 };
 
 /* ------------------------------------------------------------- control -- */
 
-static vd_hello_t s_hello; /* static: must outlive the control xfer */
+static glint_hello_t s_hello; /* static: must outlive the control xfer */
 
 bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage,
                                 tusb_control_request_t const *request)
@@ -104,13 +104,13 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage,
     }
 
     switch (request->bRequest) {
-    case VD_CMD_HELLO:
-        s_hello = (vd_hello_t){
-            .magic = VD_MAGIC_HELLO,
-            .proto_ver = VD_PROTO_VER,
+    case GLINT_CMD_HELLO:
+        s_hello = (glint_hello_t){
+            .magic = GLINT_MAGIC_HELLO,
+            .proto_ver = GLINT_PROTO_VER,
             .panel_w = BOARD_LCD_H_RES,
             .panel_h = BOARD_LCD_V_RES,
-            .fmt_mask = 1u << VD_FMT_RGB565,
+            .fmt_mask = 1u << GLINT_FMT_RGB565,
             .max_tile_len = BOARD_MAX_TILE_LEN,
             .touch_points = 2,
             .rsvd = 0,
@@ -118,20 +118,20 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage,
         };
         return tud_control_xfer(rhport, request, &s_hello, sizeof(s_hello));
 
-    case VD_CMD_BACKLIGHT:
+    case GLINT_CMD_BACKLIGHT:
         lcd_backlight((uint8_t)(request->wValue & 0xFF));
         return tud_control_status(rhport, request);
 
-    case VD_CMD_RESET: {
+    case GLINT_CMD_RESET: {
         /* Drop anything queued; the host follows with a FULL_REFRESH frame. */
-        vd_tile_msg_t *msg;
+        glint_tile_msg_t *msg;
         while (xQueueReceive(s_tile_queue, &msg, 0) == pdTRUE) {
             free(msg);
         }
         return tud_control_status(rhport, request);
     }
 
-    case VD_CMD_SLEEP:
+    case GLINT_CMD_SLEEP:
         lcd_sleep(request->wValue != 0);
         return tud_control_status(rhport, request);
 
@@ -160,9 +160,9 @@ static void rx_task(void *arg)
     (void)arg;
 
     rx_state_t state = RX_HDR;
-    uint8_t hdr_buf[sizeof(vd_tile_hdr_t)];
+    uint8_t hdr_buf[sizeof(glint_tile_hdr_t)];
     size_t hdr_fill = 0;
-    vd_tile_msg_t *cur = NULL; /* NULL in RX_PAYLOAD = sink (alloc failed) */
+    glint_tile_msg_t *cur = NULL; /* NULL in RX_PAYLOAD = sink (alloc failed) */
     uint32_t want = 0;
     size_t pay_fill = 0;
 
@@ -180,9 +180,9 @@ static void rx_task(void *arg)
                 continue;
             }
 
-            vd_tile_hdr_t hdr;
+            glint_tile_hdr_t hdr;
             memcpy(&hdr, hdr_buf, sizeof(hdr));
-            if (hdr.magic != VD_MAGIC_TILE) {
+            if (hdr.magic != GLINT_MAGIC_TILE) {
                 /* Resync: slide the window one byte and keep scanning. */
                 memmove(hdr_buf, hdr_buf + 1, sizeof(hdr_buf) - 1);
                 hdr_fill = sizeof(hdr_buf) - 1;
@@ -191,7 +191,7 @@ static void rx_task(void *arg)
             }
             hdr_fill = 0;
 
-            const bool sane = hdr.fmt == VD_FMT_RGB565 &&
+            const bool sane = hdr.fmt == GLINT_FMT_RGB565 &&
                               hdr.payload_len > 0 &&
                               hdr.payload_len <= BOARD_MAX_TILE_LEN &&
                               hdr.payload_len == (uint32_t)hdr.w * hdr.h * 2 &&
@@ -205,7 +205,7 @@ static void rx_task(void *arg)
                 continue; /* header was valid-magic garbage; rescan stream */
             }
 
-            cur = heap_caps_malloc(sizeof(vd_tile_msg_t) + hdr.payload_len,
+            cur = heap_caps_malloc(sizeof(glint_tile_msg_t) + hdr.payload_len,
                                    MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
             if (cur == NULL) {
                 ESP_LOGE(TAG, "tile alloc %lu failed",
@@ -271,12 +271,12 @@ esp_err_t usb_vendor_init(QueueHandle_t tile_queue)
                                                   10, NULL, 1);
     ESP_RETURN_ON_FALSE(ok == pdPASS, ESP_ERR_NO_MEM, TAG, "rx task");
 
-    ESP_LOGI(TAG, "vendor interface up (vid=%04x pid=%04x)", VD_USB_VID,
-             VD_USB_PID);
+    ESP_LOGI(TAG, "vendor interface up (vid=%04x pid=%04x)", GLINT_USB_VID,
+             GLINT_USB_PID);
     return ESP_OK;
 }
 
-void usb_vendor_get_stats(vd_usb_stats_t *out)
+void usb_vendor_get_stats(glint_usb_stats_t *out)
 {
     *out = s_stats;
 }

@@ -3,7 +3,7 @@ import Foundation
 /// Wire protocol constants — mirrors `protocol/protocol.h` (the C header is
 /// the source of truth). Little-endian throughout; the Mac is little-endian,
 /// so `[UInt16]` pixel buffers can be reinterpreted as wire bytes directly.
-enum VD {
+enum Glint {
     static let vid: UInt16 = 0xCAFE
     static let pid: UInt16 = 0x4010
 
@@ -41,7 +41,7 @@ struct Hello {
             UInt32(b[o]) | (UInt32(b[o + 1]) << 8) | (UInt32(b[o + 2]) << 16)
                 | (UInt32(b[o + 3]) << 24)
         }
-        guard u32(0) == VD.magicHello, u16(4) == VD.protoVer else { return nil }
+        guard u32(0) == Glint.magicHello, u16(4) == Glint.protoVer else { return nil }
         panelW = Int(u16(6))
         panelH = Int(u16(8))
         fmtMask = u16(10)
@@ -53,7 +53,7 @@ struct Hello {
 
 /// 24-byte tile header, little-endian.
 func tileHeader(
-    seq: UInt16, flags: VD.TileFlags,
+    seq: UInt16, flags: Glint.TileFlags,
     x: UInt16, y: UInt16, w: UInt16, h: UInt16,
     fmt: UInt16 = 0, payloadLen: UInt32
 ) -> Data {
@@ -65,7 +65,7 @@ func tileHeader(
         d.append(UInt8((v >> 16) & 0xFF))
         d.append(UInt8((v >> 24) & 0xFF))
     }
-    put32(VD.magicTile)
+    put32(Glint.magicTile)
     put16(seq)
     put16(flags.rawValue)
     put16(x)

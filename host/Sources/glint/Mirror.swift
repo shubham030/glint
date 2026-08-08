@@ -51,7 +51,7 @@ final class MirrorSession: NSObject, SCStreamOutput, SCStreamDelegate {
         }
         guard let display else {
             throw NSError(
-                domain: "vdisp", code: 1,
+                domain: "glint", code: 1,
                 userInfo: [
                     NSLocalizedDescriptionKey:
                         "display \(wanted) never appeared in shareable content"
@@ -73,7 +73,7 @@ final class MirrorSession: NSObject, SCStreamOutput, SCStreamDelegate {
         let stream = SCStream(filter: filter, configuration: cfg, delegate: self)
         try stream.addStreamOutput(
             self, type: .screen,
-            sampleHandlerQueue: DispatchQueue(label: "vdisp.mirror"))
+            sampleHandlerQueue: DispatchQueue(label: "glint.mirror"))
         try await stream.startCapture()
         self.stream = stream
         print(
@@ -112,12 +112,12 @@ final class MirrorSession: NSObject, SCStreamOutput, SCStreamDelegate {
             frames += 1
         } catch {
             FileHandle.standardError.write(
-                Data("vdisp: send failed: \(error)\n".utf8))
+                Data("glint: send failed: \(error)\n".utf8))
         }
     }
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {
         FileHandle.standardError.write(
-            Data("vdisp: stream stopped: \(error)\n".utf8))
+            Data("glint: stream stopped: \(error)\n".utf8))
     }
 }

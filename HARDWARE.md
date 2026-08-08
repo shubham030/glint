@@ -24,7 +24,7 @@ SPI panel — SPI is the bottleneck, dirty-rect tiling is the design driver.
 | | |
 |---|---|
 | Panel | ST7796, SPI2_HOST @ 80 MHz, **SPI mode 3**, BGR order, colour-inverted, 16bpp |
-| Native orientation | 320×480 portrait (mapcast adds swap_xy for landscape; vdisp stays portrait) |
+| Native orientation | 320×480 portrait (mapcast adds swap_xy for landscape; glint stays portrait) |
 | USB | OTG 2.0 High Speed on its own Type-C (vendor interface); CH343 UART on the other Type-C (console + flashing) |
 | Touch | FT6336 per the design doc — pins not yet traced (M5); mapcast doesn't use touch |
 | PMU | none (no AXP2101 on this board) |
@@ -38,7 +38,7 @@ SPI panel — SPI is the bottleneck, dirty-rect tiling is the design driver.
 | LCD CS | 23 |
 | LCD DC | 26 |
 | LCD RST | 27 |
-| LCD backlight | 28 (vdisp drives it with LEDC PWM for CMD_BACKLIGHT) |
+| LCD backlight | 28 (glint drives it with LEDC PWM for CMD_BACKLIGHT) |
 
 ### Flashing
 
@@ -46,9 +46,9 @@ Over the CH343 UART port (`/dev/cu.usbmodem5B91…`) — verified working
 2026-08-08 with esptool (the older "DFU only / UART damaged" note about this
 board no longer holds). The OTG Type-C is the vendor-interface port; both can
 be connected at once, which is the comfortable bring-up setup: console+flash
-on one cable, vdisp link on the other.
+on one cable, glint link on the other.
 
-Flashing vdisp replaces the mapcast (CarPlay) firmware — rebuild it from
+Flashing glint replaces the mapcast (CarPlay) firmware — rebuild it from
 `~/Desktop/Personal/carplay/firmware/mapcast` to restore.
 
 ## Secondary target: Waveshare ESP32-S3-Touch-LCD-3.5

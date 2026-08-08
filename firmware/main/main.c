@@ -13,7 +13,7 @@
 #include "power.h"
 #endif
 
-static const char *TAG = "vdisp";
+static const char *TAG = "glint";
 
 #define TILE_QUEUE_LEN 64
 
@@ -24,7 +24,7 @@ static void lcd_task(void *arg)
     QueueHandle_t q = (QueueHandle_t)arg;
 
     for (;;) {
-        vd_tile_msg_t *msg = NULL;
+        glint_tile_msg_t *msg = NULL;
         if (xQueueReceive(q, &msg, portMAX_DELAY) != pdTRUE || msg == NULL) {
             continue;
         }
@@ -62,12 +62,12 @@ void app_main(void)
     lcd_backlight(200);
 
     QueueHandle_t tile_queue = xQueueCreate(TILE_QUEUE_LEN,
-                                            sizeof(vd_tile_msg_t *));
+                                            sizeof(glint_tile_msg_t *));
     assert(tile_queue != NULL);
 
     xTaskCreatePinnedToCore(lcd_task, "lcd", 4096, tile_queue, 9, NULL, 0);
 
     ESP_ERROR_CHECK(usb_vendor_init(tile_queue));
 
-    ESP_LOGI(TAG, "vdisp fw ready: %dx%d", BOARD_LCD_H_RES, BOARD_LCD_V_RES);
+    ESP_LOGI(TAG, "glint fw ready: %dx%d", BOARD_LCD_H_RES, BOARD_LCD_V_RES);
 }

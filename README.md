@@ -272,11 +272,11 @@ make display            # extended desktop on the panel (landscape, 960×640)
 make display-portrait   # panel standing upright (640×960)
 make mirror             # mirror the main display instead
 make bars               # M0 transport test
-./host/.build/release/vdisp image <path> [--fill] [--landscape]
-./host/.build/release/vdisp backlight <0-255>
+./host/.build/release/glint image <path> [--fill] [--landscape]
+./host/.build/release/glint backlight <0-255>
 ```
 
-The virtual display lives exactly as long as the `vdisp display` process.
+The virtual display lives exactly as long as the `glint display` process.
 Colour shaping: `--sat P` / `--con P` (percent, defaults 130/110), `--flat`
 for none. Desktop size: `--width W --height H --1x` (see HARDWARE.md for
 which modes macOS accepts).

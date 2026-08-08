@@ -1,22 +1,22 @@
 import CoreGraphics
 import Foundation
 
-// vdisp — host CLI. Every mode starts with the HELLO handshake and adapts to
+// glint — host CLI. Every mode starts with the HELLO handshake and adapts to
 // the panel geometry the device reports.
 //
-//   vdisp hello                                      probe + print handshake
-//   vdisp bars [--seconds N] [--fps N]               M0 transport test
-//   vdisp image <path> [--fill] [--landscape]        M1 static image
-//   vdisp mirror [--fps N] [--landscape]             M2 mirror the main display
-//   vdisp display [--portrait] [--width W --height H --1x]
+//   glint hello                                      probe + print handshake
+//   glint bars [--seconds N] [--fps N]               M0 transport test
+//   glint image <path> [--fill] [--landscape]        M1 static image
+//   glint mirror [--fps N] [--landscape]             M2 mirror the main display
+//   glint display [--portrait] [--width W --height H --1x]
 //                 [--sat P] [--con P] [--flat]       M3 extended virtual display
-//   vdisp backlight <0-255>
-//   vdisp sleep <0|1>
+//   glint backlight <0-255>
+//   glint sleep <0|1>
 //
 // Session modes run until Ctrl-C unless --seconds is given.
 
 func fail(_ msg: String) -> Never {
-    FileHandle.standardError.write(Data(("vdisp: " + msg + "\n").utf8))
+    FileHandle.standardError.write(Data(("glint: " + msg + "\n").utf8))
     exit(1)
 }
 
@@ -38,7 +38,7 @@ func sendFrame(
     var y = 0
     while y < hello.panelH {
         let h = min(stripH, hello.panelH - y)
-        var flags: VD.TileFlags = []
+        var flags: Glint.TileFlags = []
         if fullRefresh { flags.insert(.fullRefresh) }
         if y + h >= hello.panelH { flags.insert(.lastInFrame) }
 
@@ -74,7 +74,7 @@ func runSession(_ session: MirrorSession, fps: Int, seconds: Int) async throws {
 let mode = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "bars"
 
 do {
-    let dev = try USBDevice(vid: VD.vid, pid: VD.pid)
+    let dev = try USBDevice(vid: Glint.vid, pid: Glint.pid)
     guard let hello = Hello(try dev.controlRead(.hello, length: 24)) else {
         fail("bad HELLO reply — protocol mismatch?")
     }
@@ -91,18 +91,18 @@ do {
     case "backlight":
         guard CommandLine.arguments.count > 2,
             let v = UInt16(CommandLine.arguments[2]), v <= 255
-        else { fail("usage: vdisp backlight <0-255>") }
+        else { fail("usage: glint backlight <0-255>") }
         try dev.controlWrite(.backlight, value: v)
 
     case "sleep":
         guard CommandLine.arguments.count > 2,
             let v = UInt16(CommandLine.arguments[2]), v <= 1
-        else { fail("usage: vdisp sleep <0|1>") }
+        else { fail("usage: glint sleep <0|1>") }
         try dev.controlWrite(.sleep, value: v)
 
     case "image":
         guard CommandLine.arguments.count > 2 else {
-            fail("usage: vdisp image <path> [--fill] [--landscape]")
+            fail("usage: glint image <path> [--fill] [--landscape]")
         }
         let path = CommandLine.arguments[2]
         let mode: FitMode =
@@ -136,12 +136,12 @@ do {
             pointsH = oh
         }
         guard
-            let (vdisplay, displayID) = createVirtualDisplay(
+            let (glintlay, displayID) = createVirtualDisplay(
                 pointsW: pointsW, pointsH: pointsH, hiDPI: hiDPI,
-                name: "vdisp")
+                name: "glint")
         else { fail("CGVirtualDisplay applySettings failed") }
         print(
-            "virtual display 'vdisp' up: \(pointsW)x\(pointsH)"
+            "virtual display 'glint' up: \(pointsW)x\(pointsH)"
                 + (hiDPI ? " @2x" : "") + " (id \(displayID))")
         /* NOTE (macOS 26.5): WindowServer refuses desktops under ~800 px
          * wide — sub-800 modes are halved and CGDisplaySetDisplayMode to the
@@ -161,7 +161,7 @@ do {
             satPct: flat ? 100 : argValue("--sat", default: 130),
             conPct: flat ? 100 : argValue("--con", default: 110))
         try await runSession(session, fps: fps, seconds: seconds)
-        _ = vdisplay /* keep the display alive for the session */
+        _ = glintlay /* keep the display alive for the session */
 
     case "mirror":
         let fps = max(1, argValue("--fps", default: 12))

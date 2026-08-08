@@ -8,7 +8,7 @@ enum USBError: Error, CustomStringConvertible {
     var description: String {
         switch self {
         case .notFound:
-            return "device \(String(format: "%04x:%04x", VD.vid, VD.pid)) not found — is the panel plugged in and running vdisp firmware?"
+            return "device \(String(format: "%04x:%04x", Glint.vid, Glint.pid)) not found — is the panel plugged in and running glint firmware?"
         case let .libusb(op, code):
             let msg = String(cString: libusb_error_name(code))
             return "\(op) failed: \(msg)"
@@ -59,7 +59,7 @@ final class USBDevice {
 
     /// Vendor control read (bmRequestType 0xC1: IN | vendor | interface).
     func controlRead(
-        _ cmd: VD.Cmd, value: UInt16 = 0, length: Int, timeoutMs: UInt32 = 1000
+        _ cmd: Glint.Cmd, value: UInt16 = 0, length: Int, timeoutMs: UInt32 = 1000
     ) throws -> Data {
         var buf = [UInt8](repeating: 0, count: length)
         let rc = libusb_control_transfer(
@@ -71,7 +71,7 @@ final class USBDevice {
 
     /// Vendor control write with no data stage (bmRequestType 0x41).
     func controlWrite(
-        _ cmd: VD.Cmd, value: UInt16 = 0, timeoutMs: UInt32 = 1000
+        _ cmd: Glint.Cmd, value: UInt16 = 0, timeoutMs: UInt32 = 1000
     ) throws {
         let rc = libusb_control_transfer(
             handle, 0x41, cmd.rawValue, value, 0, nil, 0, timeoutMs)

@@ -23,12 +23,12 @@ func createVirtualDisplay(
      * Report 2× the physical size (~82 PPI) so macOS keeps a 1:1 480×320
      * point desktop; the panel is small, but that's README §11's deal. */
     desc.sizeInMillimeters = CGSize(width: 148, height: 98)
-    desc.vendorID = UInt32(VD.vid)
-    desc.productID = UInt32(VD.pid)
+    desc.vendorID = UInt32(Glint.vid)
+    desc.productID = UInt32(Glint.pid)
     desc.serialNum = 1
     desc.terminationHandler = { _, _ in
         FileHandle.standardError.write(
-            Data("vdisp: virtual display terminated by WindowServer\n".utf8))
+            Data("glint: virtual display terminated by WindowServer\n".utf8))
     }
 
     guard let display = CGVirtualDisplay(descriptor: desc) else { return nil }

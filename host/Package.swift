@@ -2,7 +2,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "vdisp",
+    name: "glint",
     platforms: [.macOS(.v13)],
     targets: [
         .systemLibrary(
@@ -15,7 +15,7 @@ let package = Package(
             linkerSettings: [.linkedFramework("CoreGraphics")]
         ),
         .executableTarget(
-            name: "vdisp",
+            name: "glint",
             dependencies: ["Clibusb", "CGVirtualDisplayShim"]
         ),
     ]
