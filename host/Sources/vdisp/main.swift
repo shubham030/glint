@@ -20,6 +20,36 @@ func argValue(_ name: String, default def: Int) -> Int {
     return v
 }
 
+/// Send one full frame as max_tile-sized strips.
+func sendFrame(
+    _ dev: USBDevice, _ hello: Hello, px: [UInt16], seq: UInt16,
+    fullRefresh: Bool
+) throws -> Int {
+    let stripH = hello.maxTileLen / (hello.panelW * 2)
+    var sent = 0
+    var y = 0
+    while y < hello.panelH {
+        let h = min(stripH, hello.panelH - y)
+        var flags: VD.TileFlags = []
+        if fullRefresh { flags.insert(.fullRefresh) }
+        if y + h >= hello.panelH { flags.insert(.lastInFrame) }
+
+        let strip = Array(px[(y * hello.panelW)..<((y + h) * hello.panelW)])
+        var packet = tileHeader(
+            seq: seq, flags: flags,
+            x: 0, y: UInt16(y),
+            w: UInt16(hello.panelW), h: UInt16(h),
+            payloadLen: UInt32(strip.count * 2))
+        strip.withUnsafeBufferPointer {
+            packet.append(UnsafeRawBufferPointer($0).bindMemory(to: UInt8.self))
+        }
+        try dev.bulkWrite(packet)
+        sent += packet.count
+        y += h
+    }
+    return sent
+}
+
 let mode = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "bars"
 
 do {
@@ -49,11 +79,25 @@ do {
         else { fail("usage: vdisp sleep <0|1>") }
         try dev.controlWrite(.sleep, value: v)
 
+    case "image":
+        guard CommandLine.arguments.count > 2 else {
+            fail("usage: vdisp image <path>")
+        }
+        let path = CommandLine.arguments[2]
+        guard
+            let px = loadImageRGB565(
+                path: path, width: hello.panelW, height: hello.panelH)
+        else { fail("could not decode '\(path)'") }
+        try dev.controlWrite(.reset)
+        let n = try sendFrame(dev, hello, px: px, seq: 0, fullRefresh: true)
+        print("sent \(path) (\(n) bytes)")
+
     case "bars":
         let seconds = argValue("--seconds", default: 10)
         let fps = max(1, argValue("--fps", default: 10))
-        let stripH = hello.maxTileLen / (hello.panelW * 2)
-        guard stripH > 0 else { fail("device max_tile_len too small") }
+        guard hello.maxTileLen / (hello.panelW * 2) > 0 else {
+            fail("device max_tile_len too small")
+        }
 
         try dev.controlWrite(.reset)
 
@@ -66,29 +110,8 @@ do {
             let frameStart = Date()
             let px = renderColorBars(
                 width: hello.panelW, height: hello.panelH, phase: Int(seq) * 4)
-
-            var y = 0
-            while y < hello.panelH {
-                let h = min(stripH, hello.panelH - y)
-                var flags: VD.TileFlags = []
-                if seq == 0 { flags.insert(.fullRefresh) }
-                if y + h >= hello.panelH { flags.insert(.lastInFrame) }
-
-                let strip = Array(
-                    px[(y * hello.panelW)..<((y + h) * hello.panelW)])
-                var packet = tileHeader(
-                    seq: seq, flags: flags,
-                    x: 0, y: UInt16(y),
-                    w: UInt16(hello.panelW), h: UInt16(h),
-                    payloadLen: UInt32(strip.count * 2))
-                strip.withUnsafeBufferPointer {
-                    packet.append(UnsafeRawBufferPointer($0).bindMemory(
-                        to: UInt8.self))
-                }
-                try dev.bulkWrite(packet)
-                sentBytes += packet.count
-                y += h
-            }
+            sentBytes += try sendFrame(
+                dev, hello, px: px, seq: seq, fullRefresh: seq == 0)
             seq &+= 1
 
             if Date().timeIntervalSince(lastReport) >= 1 {
@@ -113,7 +136,9 @@ do {
             Double(sentBytes) / elapsed / 1_000_000, Double(seq) / elapsed))
 
     default:
-        fail("unknown mode '\(mode)' — use hello | bars | backlight | sleep")
+        fail(
+            "unknown mode '\(mode)' — use hello | bars | image | backlight | sleep"
+        )
     }
 } catch {
     fail("\(error)")
