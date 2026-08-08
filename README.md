@@ -23,7 +23,7 @@ expectation is the honest one.
 | M4 | Dirty-rect tiling | ✅ **300 KB → 18 KB per frame** (16.6×) |
 | M5 | Touch → cursor | ⚠️ written, **not yet verified on hardware** |
 | — | RGB565 RLE (fmt 1) | ⚠️ both ends written + tested, **not on hardware** |
-| — | Linux / Pi host | see [linux/](linux/) |
+| — | Linux / Pi host | ⚠️ pure Go, cross-compiles for Pi Zero W, **not on hardware** |
 | M6 | DSI panel swap | future ([DESIGN.md](DESIGN.md) §8) |
 
 M0–M4 have been run against the real panel. Everything marked ⚠️ compiles and
@@ -63,7 +63,11 @@ none. Desktop size: `--width W --height H --1x`. Frame cap: `--fps N`.
 
 The protocol is host-agnostic, so a Pi can drive the same panel with no
 virtual-display trickery — render something and tile it out. `make pi`
-cross-compiles the pure-Go host for a Pi Zero W. See [linux/README.md](linux/README.md).
+cross-compiles the pure-Go host for a Pi Zero W (armv6). It has **no cgo and no
+module dependencies**: USB goes straight to the kernel via usbfs ioctls, so
+cross-compiling needs no libusb and no network. Modes include `fb`, which
+mirrors a Linux framebuffer — the console path that needs no X server. See
+[linux/README.md](linux/README.md).
 
 ## Layout
 
@@ -88,10 +92,11 @@ packaging/            LaunchAgent for login start
 make test        # 23 Swift unit tests + C decoder tests + Go tests
 ```
 
-The Swift and C RLE implementations are pinned to each other by a shared
-fixture: bytes produced by the real Swift encoder are decoded by the real C
-decoder in `firmware/test/rle_test.c`. If either side's format drifts, that test
-fails instead of the panel smearing.
+All three RLE implementations are pinned to each other by a shared fixture:
+bytes produced by the real Swift encoder are decoded by the real C decoder
+(`firmware/test/rle_test.c`), and the Go encoder is asserted to emit those exact
+bytes (`linux/proto/fixture_test.go`). If any implementation's format drifts,
+that test fails instead of the panel smearing.
 
 ## Measured numbers
 

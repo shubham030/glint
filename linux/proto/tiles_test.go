@@ -367,6 +367,56 @@ func TestSendPropagatesTransportErrors(t *testing.T) {
 	}
 }
 
+// flaky accepts a few packets and then stalls, like a device that goes away
+// mid-frame.
+type flaky struct {
+	capture
+	accept int
+}
+
+func (f *flaky) BulkWrite(ctx context.Context, p []byte) error {
+	if len(f.packets) >= f.accept {
+		return errors.New("device stalled")
+	}
+	return f.capture.BulkWrite(ctx, p)
+}
+
+// A frame that dies half way has already updated the hashes for tiles the
+// panel never saw, so the next frame must be a full refresh.
+func TestPartialFrameForcesFullRefresh(t *testing.T) {
+	h := testHello(1 << FmtRGB565)
+	s := mustSender(t, h, Options{})
+	px := newFrame(h)
+	c := &capture{}
+	if _, err := s.Send(context.Background(), c, px, false); err != nil {
+		t.Fatalf("prime: %v", err)
+	}
+
+	// Dirty two separated tiles so the frame is more than one packet.
+	px[1*64*320+1*64] = 1
+	px[1*64*320+4*64] = 1
+	f := &flaky{accept: 1}
+	st, err := s.Send(context.Background(), f, px, false)
+	if err == nil {
+		t.Fatal("expected the stall to surface")
+	}
+	if st.Packets != 1 {
+		t.Errorf("reported %d packets sent, want 1 (the one that got through)", st.Packets)
+	}
+
+	c.packets = nil
+	next, err := s.Send(context.Background(), c, px, false)
+	if err != nil {
+		t.Fatalf("recovery frame: %v", err)
+	}
+	if next.Tiles != 40 {
+		t.Errorf("recovery frame sent %d tiles, want the whole grid", next.Tiles)
+	}
+	if hdr, _ := decodePacket(t, c.packets[0]); hdr.Flags&FlagFullRefresh == 0 {
+		t.Error("recovery frame is not a FULL_REFRESH")
+	}
+}
+
 // extract pulls a w*h rect out of a panelW-wide frame.
 func extract(px []uint16, panelW, x, y, w, h int) []uint16 {
 	out := make([]uint16, 0, w*h)
