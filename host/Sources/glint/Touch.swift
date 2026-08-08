@@ -88,32 +88,55 @@ final class TouchReader {
         self.onDrops = onDrops
     }
 
-    /// Blocking loop; runs until the device goes away.
+    /// Blocking loop; returns when the device goes away.
     func run() {
+        /* Read a whole max packet, not one event: TinyUSB can coalesce several
+         * 12-byte events into a single packet, and a short read would fail with
+         * OVERFLOW and lose them. */
         while true {
-            guard let data = try? dev.bulkRead(length: 12, timeoutMs: 500),
-                data.count == 12, let evt = TouchEvent(data)
-            else { continue } /* timeout: no touch is the common case */
-
-            if evt.type == .stats {
-                /* The device drops tiles when the queue overruns, so the panel
-                 * no longer matches our hash table — force a full refresh. */
-                if evt.x > lastDrops {
-                    lastDrops = evt.x
-                    onDrops?()
-                }
-                if raw {
-                    print("STATS dropped=\(evt.x) resyncs=\(evt.y)")
-                }
+            let data: Data
+            do {
+                data = try dev.bulkRead(length: 512, timeoutMs: 500)
+            } catch let error as USBError where error.isDisconnect {
+                FileHandle.standardError.write(
+                    Data("glint: event pipe closed (panel gone)\n".utf8))
+                return
+            } catch {
+                /* Transient: back off rather than spin a core on the error. */
+                Thread.sleep(forTimeInterval: 0.1)
                 continue
             }
 
-            if raw {
-                print("\(evt.type) id=\(evt.id) panel=(\(evt.x),\(evt.y))")
-                continue
+            var offset = 0
+            while offset + 12 <= data.count {
+                if let evt = TouchEvent(data.subdata(in: offset..<(offset + 12)))
+                {
+                    handle(evt)
+                }
+                offset += 12
             }
-            post(evt)
         }
+    }
+
+    private func handle(_ evt: TouchEvent) {
+        if evt.type == .stats {
+            /* The device drops tiles when its queue overruns, so the panel no
+             * longer matches our hash table — force a full refresh. */
+            if evt.x > lastDrops {
+                lastDrops = evt.x
+                onDrops?()
+            }
+            if raw {
+                print("STATS dropped=\(evt.x) resyncs=\(evt.y)")
+            }
+            return
+        }
+
+        if raw {
+            print("\(evt.type) id=\(evt.id) panel=(\(evt.x),\(evt.y))")
+            return
+        }
+        post(evt)
     }
 
     private func post(_ evt: TouchEvent) {

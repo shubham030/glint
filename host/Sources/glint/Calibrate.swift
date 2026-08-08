@@ -55,10 +55,26 @@ func calibrateTouch(dev: USBDevice, hello: Hello, landscape: Bool) {
 private func waitForTap(dev: USBDevice, timeoutSec: Int = 60) -> (x: Int, y: Int)? {
     let deadline = Date().addingTimeInterval(Double(timeoutSec))
     while Date() < deadline {
-        guard let data = try? dev.bulkRead(length: 12, timeoutMs: 500),
-            data.count == 12, let evt = TouchEvent(data)
-        else { continue }
-        if evt.type == .down { return (evt.x, evt.y) }
+        let data: Data
+        do {
+            /* A full packet, since events can arrive coalesced. */
+            data = try dev.bulkRead(length: 512, timeoutMs: 500)
+        } catch let error as USBError where error.isDisconnect {
+            return nil
+        } catch {
+            Thread.sleep(forTimeInterval: 0.1)
+            continue
+        }
+
+        var offset = 0
+        while offset + 12 <= data.count {
+            if let evt = TouchEvent(data.subdata(in: offset..<(offset + 12))),
+                evt.type == .down
+            {
+                return (evt.x, evt.y)
+            }
+            offset += 12
+        }
     }
     return nil
 }
