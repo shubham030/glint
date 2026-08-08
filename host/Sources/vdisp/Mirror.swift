@@ -16,23 +16,41 @@ final class MirrorSession: NSObject, SCStreamOutput, SCStreamDelegate {
     private let started = Date()
     private var stream: SCStream?
 
-    init(dev: USBDevice, hello: Hello, landscape: Bool) {
+    /// Capture target; nil = the main display.
+    private let targetDisplayID: CGDirectDisplayID?
+
+    init(
+        dev: USBDevice, hello: Hello, landscape: Bool,
+        displayID: CGDirectDisplayID? = nil
+    ) {
         self.dev = dev
         self.hello = hello
         self.landscape = landscape
+        self.targetDisplayID = displayID
     }
 
     func start(fps: Int) async throws {
-        let content = try await SCShareableContent.excludingDesktopWindows(
-            false, onScreenWindowsOnly: false)
-        guard
-            let display = content.displays.first(where: {
-                $0.displayID == CGMainDisplayID()
-            }) ?? content.displays.first
-        else {
+        /* A freshly created virtual display can take a beat to appear in
+         * shareable content — poll briefly instead of failing. */
+        let wanted = targetDisplayID ?? CGMainDisplayID()
+        var display: SCDisplay?
+        for _ in 0..<40 {
+            let content = try await SCShareableContent.excludingDesktopWindows(
+                false, onScreenWindowsOnly: false)
+            display = content.displays.first { $0.displayID == wanted }
+            if display == nil && targetDisplayID == nil {
+                display = content.displays.first
+            }
+            if display != nil { break }
+            try await Task.sleep(nanoseconds: 250_000_000)
+        }
+        guard let display else {
             throw NSError(
                 domain: "vdisp", code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "no display to capture"])
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "display \(wanted) never appeared in shareable content"
+                ])
         }
 
         let filter = SCContentFilter(

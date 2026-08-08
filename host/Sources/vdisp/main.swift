@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 // vdisp — M0 host CLI. Handshake, then colour bars (or one-off commands).
@@ -96,6 +97,47 @@ do {
         let n = try sendFrame(dev, hello, px: px, seq: 0, fullRefresh: true)
         print("sent \(path) (\(n) bytes)")
 
+    case "display":
+        let fps = max(1, argValue("--fps", default: 12))
+        let seconds = argValue("--seconds", default: 0) /* 0 = until ^C */
+        let landscape = !CommandLine.arguments.contains("--portrait")
+        /* Default 2× backing: WindowServer coerces a literal 480×320 mode
+         * down to 240×160 (observed on macOS 26.5), and 960×640 gives a
+         * desktop real windows actually fit on. --1x tries panel-native. */
+        let hiDPI = !CommandLine.arguments.contains("--1x")
+        /* The virtual desktop is the panel as the viewer sees it. */
+        let pointsW = landscape ? hello.panelH : hello.panelW
+        let pointsH = landscape ? hello.panelW : hello.panelH
+        guard
+            let (vdisplay, displayID) = createVirtualDisplay(
+                pointsW: pointsW, pointsH: pointsH, hiDPI: hiDPI,
+                name: "vdisp")
+        else { fail("CGVirtualDisplay applySettings failed") }
+        print(
+            "virtual display 'vdisp' up: \(pointsW)x\(pointsH)"
+                + (hiDPI ? " @2x" : "") + " (id \(displayID))")
+        let b = CGDisplayBounds(displayID)
+        let m = CGDisplayCopyDisplayMode(displayID)
+        print(
+            "desktop \(Int(b.width))x\(Int(b.height)) pt, "
+                + "mode \(m?.pixelWidth ?? 0)x\(m?.pixelHeight ?? 0) px")
+        print("drag windows onto it; Ctrl-C removes it")
+
+        let session = MirrorSession(
+            dev: dev, hello: hello, landscape: landscape,
+            displayID: displayID)
+        try await session.start(fps: fps)
+        if seconds > 0 {
+            try await Task.sleep(
+                nanoseconds: UInt64(seconds) * 1_000_000_000)
+            await session.stop()
+        } else {
+            while true {
+                try await Task.sleep(nanoseconds: 1_000_000_000)
+            }
+        }
+        _ = vdisplay /* keep the display alive for the session */
+
     case "mirror":
         let fps = max(1, argValue("--fps", default: 12))
         let seconds = argValue("--seconds", default: 0) /* 0 = until ^C */
@@ -158,7 +200,7 @@ do {
 
     default:
         fail(
-            "unknown mode '\(mode)' — use hello | bars | image | mirror | backlight | sleep"
+            "unknown mode '\(mode)' — use hello | bars | image | mirror | display | backlight | sleep"
         )
     }
 } catch {
