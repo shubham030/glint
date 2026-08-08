@@ -160,9 +160,21 @@ and vice versa:
 Ring sized ~2MB in PSRAM (≈6 full frames of slack). Drop oldest tiles on
 overrun and set a flag so the next frame requests `FULL_REFRESH`.
 
+> **As built:** a 64-deep queue of per-tile PSRAM allocations replaced the fixed
+> ring — same decoupling, but it sizes itself to the traffic instead of
+> reserving 2MB. Worst case is 512KB (64 × 8KB tiles) against 32MB of PSRAM, a
+> full refresh is 320KB, and steady state at 30fps measured ~0.59 MB/s, so the
+> queue is never near full. On overrun the newest tile is dropped rather than the
+> oldest — dropping the oldest would mean discarding a tile already accounted
+> for, and the recovery path is the same either way: the device reports the drop
+> and the host sends a full refresh.
+
 Start SPI at 40MHz. Walk it up to 80MHz once the pipeline is stable — the
 practical ceiling varies board to board and shows up as tearing or corrupt
 tiles, not clean failure.
+
+> **As built:** 80MHz from the start, since mapcast had already proven that rate
+> on this exact panel.
 
 ---
 
