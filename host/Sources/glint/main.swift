@@ -169,18 +169,22 @@ do {
             conPct: flat ? 100 : argValue("--con", default: 110),
             fullFrames: CommandLine.arguments.contains("--full"))
 
-        /* Touch and STATS share the bulk IN pipe, so one reader owns it. It is
-         * opt-in because an uncalibrated mapping would fling the cursor across
-         * the desktop; `glint touch` prints raw coords to pick the flags. */
-        if CommandLine.arguments.contains("--touch") {
-            let reader = TouchReader(
-                dev: dev, hello: hello,
-                mapping: TouchMapping.parse(CommandLine.arguments),
-                bounds: CGDisplayBounds(displayID), raw: false,
-                onDrops: { session.resync() })
-            Thread { reader.run() }.start()
-            print("touch → cursor enabled")
-        }
+        /* The reader always runs: STATS events share this pipe, and if nobody
+         * drains it the device's FIFO fills and dropped-tile reports never
+         * arrive — which would silently disable resync. Posting touch as cursor
+         * events is the opt-in part, because an uncalibrated mapping would
+         * fling the cursor across the desktop. */
+        let touchToCursor = CommandLine.arguments.contains("--touch")
+        let reader = TouchReader(
+            dev: dev, hello: hello,
+            mapping: TouchMapping.parse(CommandLine.arguments),
+            bounds: touchToCursor ? CGDisplayBounds(displayID) : nil,
+            raw: false, onDrops: { session.resync() })
+        Thread { reader.run() }.start()
+        print(
+            touchToCursor
+                ? "touch → cursor enabled"
+                : "touch idle (pass --touch to move the cursor)")
 
         try await runSession(session, fps: fps, seconds: seconds)
         _ = virtualDisplay /* keep the display alive for the session */
@@ -192,6 +196,11 @@ do {
         let session = MirrorSession(
             dev: dev, hello: hello, landscape: landscape,
             fullFrames: CommandLine.arguments.contains("--full"))
+        /* Drain STATS so dropped tiles still trigger a resync here too. */
+        let reader = TouchReader(
+            dev: dev, hello: hello, mapping: TouchMapping(),
+            bounds: nil, raw: false, onDrops: { session.resync() })
+        Thread { reader.run() }.start()
         try await runSession(session, fps: fps, seconds: seconds)
 
     case "touch":
