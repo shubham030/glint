@@ -2,12 +2,11 @@
 
 Build notes for **Waveshare ESP32-P4-WIFI6-Touch-LCD-3.5**.
 
-> **Reality check (2026-08-08):** this board does not exist — Waveshare's P4
-> touch-LCD lineup is 3.4C/4B/4C/7B, all MIPI-DSI. The panel described below
-> (3.5" ST7796 SPI + FT6336, 320×480) is the **ESP32-S3-Touch-LCD-3.5**, and
-> that is what the firmware targets. See [HARDWARE.md](HARDWARE.md) for what
-> actually changes (spoiler: USB FS flips the §3 bottleneck analysis; the
-> architecture survives).
+> **Reality check (2026-08-08):** the board is real (it's the unit the
+> carplay/mapcast project runs on) but absent from Waveshare's public wiki, so
+> every pin fact in the firmware comes from the proven mapcast code, not
+> vendor docs — see [HARDWARE.md](HARDWARE.md). The firmware also builds for
+> the catalogue Waveshare ESP32-S3-Touch-LCD-3.5 (same panel, USB FS caveat).
 
 ---
 

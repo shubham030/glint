@@ -1,77 +1,63 @@
-# Actual hardware — ESP32-S3-Touch-LCD-3.5
+# Actual hardware
 
-The design doc names a "Waveshare ESP32-P4-WIFI6-Touch-LCD-3.5". Checked
-2026-08-08: Waveshare's complete wiki catalogue has no P4 3.5" board — the P4
-touch-LCD lineup is 3.4C (round, DSI), 4B, 4C, 7B. The doc's panel spec
-(3.5" ST7796 SPI + FT6336, 320×480, ~165 PPI) is the
-**[ESP32-S3-Touch-LCD-3.5](https://www.waveshare.com/wiki/ESP32-S3-Touch-LCD-3.5)**,
-which is what the firmware targets.
+## Primary target: ESP32-P4-WIFI6-Touch-LCD-3.5 (the CarPlay board)
 
-## What changes vs. the design doc
+The design doc's board is real and on the desk — it's the same unit the
+carplay/mapcast project targets (ESP32-P4 rev v1.3, 16MB flash, CH343
+USB-UART bridge on the second Type-C). It is *not* in Waveshare's public wiki
+catalogue (checked 2026-08-08 — their P4 touch-LCD lineup lists only
+3.4C/4B/4C/7B), so all pin facts below come from the proven mapcast firmware
+(`carplay/firmware/mapcast/main/display.c`), not vendor docs.
 
-**The §3 bottleneck flips.** The S3 has USB OTG **Full Speed only** — 12 Mbps
-on the wire, ~1 MB/s of real bulk throughput. SPI at 80 MHz (~8–10 MB/s) is
-now the *fast* side:
-
-| Path | Throughput | Full 320×480 RGB565 frame (307KB) |
-|---|---|---|
-| USB FS bulk, real | ~1 MB/s | **~3 fps** |
-| SPI @ 80MHz, real | ~7–8 MB/s | 15–25 fps |
-
-Consequences:
-
-- Dirty-rect tiling (M4) matters even more than the doc claims — full-frame
-  updates are ~3 fps, so *everything* rides on update locality.
-- `RGB565_RLE` (fmt 1, already reserved in the protocol) is worth implementing
-  early — flat UI regions compress 10–50×, and the decode cost on the S3 is
-  trivial against a 1 MB/s wire.
-- §8 (DSI upgrade, hardware JPEG) does not apply to this board. The upgrade
-  path is a future P4+DSI board — which the handshake already accommodates.
-- The doc's advice stands: this is a status panel for mostly-static content.
-
-**No second USB port.** The S3 exposes one USB OTG (GPIO19/20) on the Type-C.
-The same connector carries either the vendor interface (our firmware) or the
-USB-Serial-JTAG console (ROM/IDF default) — flashing and the vendor link share
-the port. `idf.py flash` works over USB-Serial-JTAG in the bootloader
-regardless of what the app firmware does with the OTG controller (hold BOOT +
-tap RESET if the app has claimed it).
-
-## Board facts (from the Waveshare factory demo, `01_factory`)
+The doc's §3 analysis stands for this board: USB 2.0 HS feeds an ~8–10 MB/s
+SPI panel — SPI is the bottleneck, dirty-rect tiling is the design driver.
 
 | | |
 |---|---|
-| SoC | ESP32-S3R8 (QFN56), 8MB octal PSRAM, 240 MHz |
-| Flash | W25Q128 16MB NOR |
-| PMU | AXP2101 @ I2C 0x34 — rails must be enabled before the panel works |
-| Codec / IMU / RTC | ES8311, QMI8658, PCF85063 (unused here) |
-| Panel | ST7796, SPI2_HOST @ 80 MHz (factory demo runs 80 MHz), BGR order, colour-inverted, 16bpp |
-| Touch | FT6336 @ I2C 0x38, 2-point |
+| Panel | ST7796, SPI2_HOST @ 80 MHz, **SPI mode 3**, BGR order, colour-inverted, 16bpp |
+| Native orientation | 320×480 portrait (mapcast adds swap_xy for landscape; vdisp stays portrait) |
+| USB | OTG 2.0 High Speed on its own Type-C (vendor interface); CH343 UART on the other Type-C (console + flashing) |
+| Touch | FT6336 per the design doc — pins not yet traced (M5); mapcast doesn't use touch |
+| PMU | none (no AXP2101 on this board) |
 
-### Pins
+### Pins (from mapcast)
 
 | Function | GPIO |
 |---|---|
-| LCD MOSI | 1 |
-| LCD SCLK | 5 |
-| LCD DC | 3 |
-| LCD CS | none (tied active on-board) |
-| LCD RST | none (power-cycle via PMU) |
-| LCD backlight | 6 (LEDC PWM, 5 kHz, 10-bit) |
-| I2C SDA | 8 |
-| I2C SCL | 7 |
-| USB D− / D+ | 19 / 20 (fixed OTG pins) |
+| LCD MOSI | 20 |
+| LCD SCLK | 21 |
+| LCD CS | 23 |
+| LCD DC | 26 |
+| LCD RST | 27 |
+| LCD backlight | 28 (vdisp drives it with LEDC PWM for CMD_BACKLIGHT) |
 
-### Power-up order
+### Flashing
 
-AXP2101 rail init (voltages + enables exactly as the factory demo:
-`firmware/main/power.cpp`, vendored `XPowersLib`) → backlight LEDC → SPI bus →
-panel init (BGR, invert, disp_on). Skipping the PMU step leaves the panel dark
-regardless of SPI traffic.
+Over the CH343 UART port (`/dev/cu.usbmodem5B91…`) — verified working
+2026-08-08 with esptool (the older "DFU only / UART damaged" note about this
+board no longer holds). The OTG Type-C is the vendor-interface port; both can
+be connected at once, which is the comfortable bring-up setup: console+flash
+on one cable, vdisp link on the other.
+
+Flashing vdisp replaces the mapcast (CarPlay) firmware — rebuild it from
+`~/Desktop/Personal/carplay/firmware/mapcast` to restore.
+
+## Secondary target: Waveshare ESP32-S3-Touch-LCD-3.5
+
+Kept as a build target (`idf.py set-target esp32s3`) since the firmware is
+board-abstracted and this catalogue board matches the same panel spec. Caveat:
+its USB is **Full Speed** (~1 MB/s real) — on that board the doc's §3
+bottleneck flips to USB, making RLE compression (fmt 1) near-mandatory.
+
+| | |
+|---|---|
+| SoC | ESP32-S3R8, 8MB octal PSRAM |
+| Panel | ST7796 SPI2 @ 80 MHz, SPI mode 0, BGR + invert; CS/RST not GPIO-driven |
+| PMU | AXP2101 @ 0x34 — rails must be enabled before the panel works (`power.cpp`, vendored XPowersLib, config verbatim from the factory demo) |
+| Pins | MOSI 1, SCLK 5, DC 3, BL 6 (LEDC); I2C SDA 8 / SCL 7; touch FT6336 @ 0x38 |
 
 ## Boards ruled out
 
-- The board connected on 2026-08-08 (`ESP32-S3`, USB-Serial-JTAG
-  `/dev/cu.usbmodem2101`) is the **moth** spare AMOLED unit — it runs
-  `moth_ui_demo` (verified via app descriptor read). Do not flash it.
-- The CarPlay ESP32-P4 3.5" board is in service and its UART is damaged
-  (DFU-only). Not a candidate.
+- The ESP32-S3 on `/dev/cu.usbmodem2101` (when connected) is the **moth**
+  spare AMOLED unit — it runs `moth_ui_demo` (verified via app-descriptor
+  read). Never flash it.
