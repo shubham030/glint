@@ -85,6 +85,12 @@ payload length consistent with the format. A header that fails is discarded and
 the parser resynchronises by sliding one byte — a corrupt stream must not paint
 garbage.
 
+The parser holds position inside a tile across reads, since a bulk transfer can
+split anywhere. That position does **not** survive the host going away: it is
+rewound on USB mount transitions and on `CMD_RESET`, because otherwise a cable
+swap mid-payload leaves the device waiting for bytes that never come, and the
+next session's first header gets eaten as the tail of a dead payload.
+
 ### fmt 0 — RGB565LE
 
 Raw pixels, row-major, `w * h * 2` bytes. `payload_len` must equal exactly that.
