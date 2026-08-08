@@ -261,23 +261,27 @@ static void rx_task(void *arg)
 
             glint_tile_hdr_t hdr;
             memcpy(&hdr, hdr_buf, sizeof(hdr));
-            if (hdr.magic != GLINT_MAGIC_TILE) {
-                /* Resync: slide the window one byte and keep scanning. */
+
+            /* Both rejection paths must slide by one byte, not discard the
+             * whole window: the magic can occur by chance inside pixel data,
+             * and the window is exactly one header long, so a real header
+             * starting anywhere inside it would be swallowed and the desync
+             * would cascade instead of recovering. */
+            decoded_len = (uint32_t)hdr.w * hdr.h * 2;
+            const bool usable = hdr.magic == GLINT_MAGIC_TILE &&
+                                header_is_sane(&hdr, decoded_len);
+            if (!usable) {
+                if (hdr.magic == GLINT_MAGIC_TILE) {
+                    ESP_LOGW(TAG, "insane tile %ux%u@%u,%u fmt=%u len=%lu",
+                             hdr.w, hdr.h, hdr.x, hdr.y, hdr.fmt,
+                             (unsigned long)hdr.payload_len);
+                }
                 memmove(hdr_buf, hdr_buf + 1, sizeof(hdr_buf) - 1);
                 hdr_fill = sizeof(hdr_buf) - 1;
                 s_stats.resyncs++;
                 continue;
             }
             hdr_fill = 0;
-
-            decoded_len = (uint32_t)hdr.w * hdr.h * 2;
-            if (!header_is_sane(&hdr, decoded_len)) {
-                ESP_LOGW(TAG, "insane tile %ux%u@%u,%u fmt=%u len=%lu",
-                         hdr.w, hdr.h, hdr.x, hdr.y, hdr.fmt,
-                         (unsigned long)hdr.payload_len);
-                s_stats.resyncs++;
-                continue; /* header was valid-magic garbage; rescan stream */
-            }
 
             /* A sequence that neither repeats nor advances by one means tiles
              * went missing in flight; the host watches this counter and
@@ -354,7 +358,15 @@ static void rx_task(void *arg)
 
 /* --------------------------------------------------------------- stats -- */
 
-/* Report only when something changed: an idle link should be silent. */
+/* Report only when something changed: an idle link should be silent.
+ *
+ * The counters are read exactly once per tick and `last` only advances after
+ * the event is actually queued. Reading them more than once would let an
+ * increment land between reads and be recorded as already-reported, and
+ * committing before the send would lose every report made while the host was
+ * not draining bulk IN — which is the normal case, not a race. Either way the
+ * loss is permanent and silent, and both hosts' resync depends on this signal.
+ */
 static void stats_task(void *arg)
 {
     (void)arg;
@@ -362,23 +374,24 @@ static void stats_task(void *arg)
 
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(1000));
-        const uint32_t dropped = s_stats.tiles_dropped + s_stats.seq_gaps;
+        const glint_usb_stats_t now = s_stats; /* one read, used throughout */
+        const uint32_t dropped = now.tiles_dropped + now.seq_gaps;
         if (dropped == last.tiles_dropped + last.seq_gaps &&
-            s_stats.resyncs == last.resyncs) {
+            now.resyncs == last.resyncs) {
             continue;
         }
-        last = s_stats;
 
         const glint_evt_t evt = {
             .magic = GLINT_MAGIC_EVT,
             .type = GLINT_EVT_STATS,
             .id = 0,
             .x = (uint16_t)(dropped > 0xFFFF ? 0xFFFF : dropped),
-            .y = (uint16_t)(s_stats.resyncs > 0xFFFF ? 0xFFFF
-                                                    : s_stats.resyncs),
+            .y = (uint16_t)(now.resyncs > 0xFFFF ? 0xFFFF : now.resyncs),
             .rsvd = 0,
         };
-        usb_vendor_send_event(&evt);
+        if (usb_vendor_send_event(&evt)) {
+            last = now; /* only now is it true that the host was told */
+        }
     }
 }
 
@@ -433,14 +446,17 @@ void usb_vendor_get_stats(glint_usb_stats_t *out)
     *out = s_stats;
 }
 
-void usb_vendor_send_event(const glint_evt_t *evt)
+bool usb_vendor_send_event(const glint_evt_t *evt)
 {
     if (!tud_vendor_mounted()) {
-        return;
+        return false;
     }
     if (tud_vendor_write_available() < sizeof(*evt)) {
-        return; /* host not draining; see header */
+        return false; /* host not draining; see header */
     }
-    tud_vendor_write(evt, sizeof(*evt));
+    if (tud_vendor_write(evt, sizeof(*evt)) != sizeof(*evt)) {
+        return false;
+    }
     tud_vendor_write_flush();
+    return true;
 }

@@ -28,7 +28,9 @@ esp_err_t usb_vendor_init(QueueHandle_t tile_queue);
 
 void usb_vendor_get_stats(glint_usb_stats_t *out);
 
-/* Queue a 12-byte event on the bulk IN pipe. Dropped if the host isn't
- * draining — touch state is re-sent on the next change, so a lost MOVE is
- * harmless (a lost UP is corrected by the next DOWN). */
-void usb_vendor_send_event(const glint_evt_t *evt);
+/* Queue a 12-byte event on the bulk IN pipe. Returns false if it could not be
+ * queued — no host mounted, or the IN FIFO is full because nothing is draining
+ * it. Touch events can be dropped safely (state is re-sent on the next change),
+ * but STATS callers must check the result: committing "reported" for an event
+ * that never left would lose the loss report permanently. */
+bool usb_vendor_send_event(const glint_evt_t *evt);
