@@ -1,0 +1,12 @@
+.DS_Store
+
+# ESP-IDF
+firmware/build/
+firmware/managed_components/
+firmware/sdkconfig
+firmware/sdkconfig.old
+firmware/dependencies.lock
+
+# SwiftPM
+host/.build/
+host/.swiftpm/
