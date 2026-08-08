@@ -103,11 +103,18 @@ do {
         let landscape = !CommandLine.arguments.contains("--portrait")
         /* Default 2× backing: WindowServer coerces a literal 480×320 mode
          * down to 240×160 (observed on macOS 26.5), and 960×640 gives a
-         * desktop real windows actually fit on. --1x tries panel-native. */
+         * desktop real windows actually fit on. --1x tries panel-native;
+         * --width/--height override for experimentation. */
         let hiDPI = !CommandLine.arguments.contains("--1x")
         /* The virtual desktop is the panel as the viewer sees it. */
-        let pointsW = landscape ? hello.panelH : hello.panelW
-        let pointsH = landscape ? hello.panelW : hello.panelH
+        var pointsW = landscape ? hello.panelH : hello.panelW
+        var pointsH = landscape ? hello.panelW : hello.panelH
+        let ow = argValue("--width", default: 0)
+        let oh = argValue("--height", default: 0)
+        if ow > 0 && oh > 0 {
+            pointsW = ow
+            pointsH = oh
+        }
         guard
             let (vdisplay, displayID) = createVirtualDisplay(
                 pointsW: pointsW, pointsH: pointsH, hiDPI: hiDPI,
@@ -116,6 +123,10 @@ do {
         print(
             "virtual display 'vdisp' up: \(pointsW)x\(pointsH)"
                 + (hiDPI ? " @2x" : "") + " (id \(displayID))")
+        /* NOTE (macOS 26.5): WindowServer refuses desktops under ~800 px
+         * wide — sub-800 modes are halved and CGDisplaySetDisplayMode to the
+         * exact mode fails (1001). 960×640 (2:1) and 800×534 (1.67:1) are
+         * the workable sizes; panel-native 480×320 is not possible. */
         let b = CGDisplayBounds(displayID)
         let m = CGDisplayCopyDisplayMode(displayID)
         print(
