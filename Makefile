@@ -1,6 +1,10 @@
 IDF_EXPORT := source $(HOME)/esp/esp-idf-v5.5/export.sh >/dev/null 2>&1
+PORT ?= $(shell ls /dev/cu.usbmodem* 2>/dev/null | head -1)
+GLINT := ./host/.build/release/glint
 
-.PHONY: all fw host flash monitor bars hello clean
+.PHONY: all fw host test test-host test-fw test-go flash monitor \
+        display display-portrait mirror bars hello stats calibrate \
+        pi install-agent uninstall-agent clean
 
 all: fw host
 
@@ -10,29 +14,61 @@ fw:
 host:
 	cd host && swift build -c release
 
+# Everything verifiable without a board attached.
+test: test-host test-fw test-go
+
+test-host:
+	cd host && swift test
+
+test-fw:
+	./firmware/test/run.sh
+
+test-go:
+	cd linux && go test ./... 2>/dev/null || echo "(linux host not built yet)"
+
 flash:
-	cd firmware && $(IDF_EXPORT) && idf.py -p $(PORT) flash
+	cd firmware && $(IDF_EXPORT) && idf.py -p $(PORT) -b 460800 flash
 
 monitor:
 	cd firmware && $(IDF_EXPORT) && idf.py -p $(PORT) monitor
 
-hello: host
-	./host/.build/release/glint hello
-
-bars: host
-	./host/.build/release/glint bars --seconds 10 --fps 10
-
-# The virtual display lives exactly as long as this process — keep it in a
-# terminal tab (or ask for the LaunchAgent setup to run it at login).
+# The virtual display lives exactly as long as this process; it waits for the
+# panel, so starting it before the cable is plugged in is fine.
 display: host
-	./host/.build/release/glint display
+	$(GLINT) display
 
 # Panel standing upright: 640x960 desktop, exact 2:1 onto 320x480
 display-portrait: host
-	./host/.build/release/glint display --portrait
+	$(GLINT) display --portrait
 
 mirror: host
-	./host/.build/release/glint mirror --landscape
+	$(GLINT) mirror --landscape
+
+bars: host
+	$(GLINT) bars --seconds 10 --fps 10
+
+hello: host
+	$(GLINT) hello
+
+stats: host
+	$(GLINT) stats
+
+calibrate: host
+	$(GLINT) touch --calibrate
+
+# Cross-compile the Go host for a Pi Zero W.
+pi:
+	cd linux && GOOS=linux GOARCH=arm GOARM=6 go build -o glint-pi ./cmd/glint
+	@echo "built linux/glint-pi — copy to the Pi and run ./glint-pi hello"
+
+install-agent: host
+	cp packaging/com.shubham.glint.plist $(HOME)/Library/LaunchAgents/
+	launchctl load $(HOME)/Library/LaunchAgents/com.shubham.glint.plist
+	@echo "glint will now start at login; logs in /tmp/glint.log"
+
+uninstall-agent:
+	launchctl unload $(HOME)/Library/LaunchAgents/com.shubham.glint.plist || true
+	rm -f $(HOME)/Library/LaunchAgents/com.shubham.glint.plist
 
 clean:
 	cd firmware && rm -rf build

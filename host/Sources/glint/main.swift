@@ -78,8 +78,14 @@ func runSession(_ session: MirrorSession, fps: Int, seconds: Int) async throws {
 
 let mode = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "bars"
 
+/// Long-running modes wait for the panel; one-shot commands fail fast.
+let sessionModes: Set<String> = ["display", "mirror", "touch", "stats"]
+let waitForDevice =
+    sessionModes.contains(mode) && !CommandLine.arguments.contains("--no-wait")
+
 do {
-    let dev = try USBDevice(vid: Glint.vid, pid: Glint.pid)
+    let dev = try USBDevice.open(
+        vid: Glint.vid, pid: Glint.pid, waitForDevice: waitForDevice)
     guard let hello = Hello(try dev.controlRead(.hello, length: 24)) else {
         fail("bad HELLO reply — protocol mismatch?")
     }

@@ -141,6 +141,13 @@ final class MirrorSession: NSObject, SCStreamOutput, SCStreamDelegate {
             compressed += s.compressed
             frames += 1
             if s.packets == 0 { idleFrames += 1 }
+        } catch let error as USBError where error.isDisconnect {
+            /* The panel was unplugged. Exiting beats spraying one error per
+             * frame; a supervisor (or the user) restarts us and the session
+             * waits for the device to come back. */
+            FileHandle.standardError.write(
+                Data("glint: panel disconnected — exiting\n".utf8))
+            exit(3)
         } catch {
             FileHandle.standardError.write(
                 Data("glint: send failed: \(error)\n".utf8))

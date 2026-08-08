@@ -6,6 +6,19 @@ enum USBError: Error, CustomStringConvertible {
     case notFound
     case libusb(String, Int32)
 
+    /// True when the device went away rather than misbehaved — the caller
+    /// should exit so a supervisor can restart it, not retry the transfer.
+    var isDisconnect: Bool {
+        switch self {
+        case .notFound:
+            return true
+        case let .libusb(_, code):
+            return code == LIBUSB_ERROR_NO_DEVICE.rawValue
+                || code == LIBUSB_ERROR_IO.rawValue
+                || code == LIBUSB_ERROR_PIPE.rawValue
+        }
+    }
+
     var description: String {
         switch self {
         case .notFound:
@@ -23,6 +36,28 @@ final class USBDevice {
     /// Bulk max packet size — 64 on Full Speed, 512 on High Speed. Needed for
     /// the ZLP rule: transfers that are an exact multiple must be terminated.
     let maxPacket: Int
+
+    /// Opens the device, optionally waiting for it to appear. Cables on this
+    /// board get swapped constantly, so a long-running session should sit and
+    /// wait rather than fail at startup.
+    static func open(
+        vid: UInt16, pid: UInt16, waitForDevice: Bool
+    ) throws -> USBDevice {
+        var announced = false
+        while true {
+            do {
+                return try USBDevice(vid: vid, pid: pid)
+            } catch let error as USBError {
+                guard waitForDevice, case .notFound = error else { throw error }
+                if !announced {
+                    let id = String(format: "%04x:%04x", vid, pid)
+                    print("waiting for the panel (\(id))…")
+                    announced = true
+                }
+                Thread.sleep(forTimeInterval: 1)
+            }
+        }
+    }
 
     init(vid: UInt16, pid: UInt16) throws {
         var c: OpaquePointer?

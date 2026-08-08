@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+    "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Runs the extended display at login. `glint display` waits for the panel, so
+  the agent can start before the cable is plugged in; KeepAlive restarts it if
+  the panel is unplugged (the session exits 3 on disconnect).
+
+  Install:
+    cp packaging/com.shubham.glint.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.shubham.glint.plist
+  Uninstall:
+    launchctl unload ~/Library/LaunchAgents/com.shubham.glint.plist
+
+  Screen Recording permission belongs to the binary being run, so the first
+  launch may need approval in System Settings → Privacy & Security.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.shubham.glint</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/shubham/Desktop/Personal/glint/host/.build/release/glint</string>
+        <string>display</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- Avoid a tight respawn loop if something is fundamentally broken. -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/glint.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/glint.log</string>
+</dict>
+</plist>
