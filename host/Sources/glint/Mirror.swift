@@ -1,5 +1,6 @@
 import CoreImage
 import Foundation
+import GlintCore
 import ScreenCaptureKit
 
 /// M2: mirror the main display to the panel via ScreenCaptureKit.
@@ -17,6 +18,7 @@ final class MirrorSession: NSObject, SCStreamOutput, SCStreamDelegate {
     private var frames = 0
     private var bytes = 0
     private var tilesSent = 0
+    private var compressed = 0
     private var idleFrames = 0
     private let started = Date()
     private var stream: SCStream?
@@ -38,7 +40,14 @@ final class MirrorSession: NSObject, SCStreamOutput, SCStreamDelegate {
         self.fullFrames = fullFrames
         self.tiles = TileSender(
             panelW: hello.panelW, panelH: hello.panelH,
-            maxTileLen: hello.maxTileLen)
+            maxTileLen: hello.maxTileLen,
+            allowRLE: hello.supports(.rle))
+    }
+
+    /// Called when the device reports dropped tiles: the panel and our hash
+    /// table have diverged, so the next frame must be a full refresh.
+    func resync() {
+        tiles.invalidate()
     }
 
     func start(fps: Int) async throws {
@@ -99,11 +108,11 @@ final class MirrorSession: NSObject, SCStreamOutput, SCStreamDelegate {
         print(String(
             format:
                 "%.1f KB/frame avg (full frame is %.0f KB), %.1f tiles/frame, "
-                + "%d frames unchanged",
+                + "%d frames unchanged, %d packets RLE",
             frames > 0 ? Double(bytes) / Double(frames) / 1024 : 0,
             fullFrameKB,
             frames > 0 ? Double(tilesSent) / Double(frames) : 0,
-            idleFrames))
+            idleFrames, compressed))
     }
 
     func stream(
@@ -123,9 +132,13 @@ final class MirrorSession: NSObject, SCStreamOutput, SCStreamDelegate {
         else { return }
 
         do {
-            let s = try tiles.send(dev, px: px, forceFull: fullFrames)
+            let (packets, s) = tiles.packets(px: px, forceFull: fullFrames)
+            for packet in packets {
+                try dev.bulkWrite(packet)
+            }
             bytes += s.bytes
             tilesSent += s.tiles
+            compressed += s.compressed
             frames += 1
             if s.packets == 0 { idleFrames += 1 }
         } catch {

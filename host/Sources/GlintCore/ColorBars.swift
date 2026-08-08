@@ -2,7 +2,7 @@ import Foundation
 
 /// Classic 8-bar pattern, RGB565 host-order (little-endian memory layout ==
 /// wire layout). `phase` rotates the bars so motion is visible on the panel.
-func renderColorBars(width: Int, height: Int, phase: Int) -> [UInt16] {
+public func renderColorBars(width: Int, height: Int, phase: Int) -> [UInt16] {
     let bars: [(UInt8, UInt8, UInt8)] = [
         (255, 255, 255), // white
         (255, 255, 0), // yellow

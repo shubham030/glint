@@ -1,3 +1,4 @@
+import GlintCore
 import CoreGraphics
 import Foundation
 import ImageIO

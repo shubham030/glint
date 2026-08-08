@@ -14,9 +14,13 @@ let package = Package(
             name: "CGVirtualDisplayShim",
             linkerSettings: [.linkedFramework("CoreGraphics")]
         ),
+        // Platform-neutral wire format, tiling and RLE — unit-tested without
+        // a device, and the reference the Go host mirrors.
+        .target(name: "GlintCore"),
         .executableTarget(
             name: "glint",
-            dependencies: ["Clibusb", "CGVirtualDisplayShim"]
+            dependencies: ["Clibusb", "CGVirtualDisplayShim", "GlintCore"]
         ),
+        .testTarget(name: "GlintCoreTests", dependencies: ["GlintCore"]),
     ]
 )

@@ -1,3 +1,4 @@
+import GlintCore
 import CoreGraphics
 import Foundation
 
@@ -9,7 +10,11 @@ import Foundation
 //   glint image <path> [--fill] [--landscape]        M1 static image
 //   glint mirror [--fps N] [--landscape]             M2 mirror the main display
 //   glint display [--portrait] [--width W --height H --1x]
-//                 [--sat P] [--con P] [--flat]       M3 extended virtual display
+//                 [--sat P] [--con P] [--flat] [--full]
+//                 [--touch [--tp-swap --tp-flip-x --tp-flip-y]]
+//                                                    M3/M4 extended display
+//   glint touch [--calibrate]                        M5 touch, raw or guided
+//   glint stats                                      device counters
 //   glint backlight <0-255>
 //   glint sleep <0|1>
 //
@@ -140,7 +145,7 @@ do {
             pointsH = oh
         }
         guard
-            let (glintlay, displayID) = createVirtualDisplay(
+            let (virtualDisplay, displayID) = createVirtualDisplay(
                 pointsW: pointsW, pointsH: pointsH, hiDPI: hiDPI,
                 name: "glint")
         else { fail("CGVirtualDisplay applySettings failed") }
@@ -165,8 +170,22 @@ do {
             satPct: flat ? 100 : argValue("--sat", default: 130),
             conPct: flat ? 100 : argValue("--con", default: 110),
             fullFrames: CommandLine.arguments.contains("--full"))
+
+        /* Touch and STATS share the bulk IN pipe, so one reader owns it. It is
+         * opt-in because an uncalibrated mapping would fling the cursor across
+         * the desktop; `glint touch` prints raw coords to pick the flags. */
+        if CommandLine.arguments.contains("--touch") {
+            let reader = TouchReader(
+                dev: dev, hello: hello,
+                mapping: TouchMapping.parse(CommandLine.arguments),
+                bounds: CGDisplayBounds(displayID), raw: false,
+                onDrops: { session.resync() })
+            Thread { reader.run() }.start()
+            print("touch → cursor enabled")
+        }
+
         try await runSession(session, fps: fps, seconds: seconds)
-        _ = glintlay /* keep the display alive for the session */
+        _ = virtualDisplay /* keep the display alive for the session */
 
     case "mirror":
         let fps = max(1, argValue("--fps", default: 12))
@@ -178,13 +197,25 @@ do {
         try await runSession(session, fps: fps, seconds: seconds)
 
     case "touch":
-        /* Calibration mode: prints panel coords so the mapping flags can be
-         * chosen from real taps rather than guessed. */
+        if CommandLine.arguments.contains("--calibrate") {
+            calibrateTouch(
+                dev: dev, hello: hello,
+                landscape: !CommandLine.arguments.contains("--portrait"))
+            exit(0)
+        }
+        /* Raw mode: prints panel coords so the mapping can be checked by eye. */
         let reader = TouchReader(
             dev: dev, hello: hello,
             mapping: TouchMapping.parse(CommandLine.arguments),
             bounds: nil, raw: true)
         print("tap the panel — Ctrl-C to stop")
+        reader.run()
+
+    case "stats":
+        let reader = TouchReader(
+            dev: dev, hello: hello, mapping: TouchMapping(),
+            bounds: nil, raw: true)
+        print("draining events (STATS + touch) — Ctrl-C to stop")
         reader.run()
 
     case "bars":

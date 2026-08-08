@@ -1,3 +1,4 @@
+import GlintCore
 import CGVirtualDisplayShim
 import CoreGraphics
 import Foundation

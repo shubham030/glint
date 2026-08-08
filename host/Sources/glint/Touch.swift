@@ -1,3 +1,4 @@
+import GlintCore
 import CoreGraphics
 import Foundation
 
@@ -13,7 +14,8 @@ enum TouchEventType: UInt8 {
 struct TouchEvent {
     let type: TouchEventType
     let id: UInt8
-    /// Panel-native coordinates (0..panelW-1, 0..panelH-1).
+    /// Panel-native coordinates for touch types; for STATS, `x` carries the
+    /// dropped-tile count and `y` the resync count.
     let x: Int
     let y: Int
 
@@ -70,18 +72,20 @@ final class TouchReader {
     private let mapping: TouchMapping
     private let bounds: CGRect?
     private let raw: Bool
+    private let onDrops: (() -> Void)?
     private var dragging = false
-    private var last = CGPoint.zero
+    private var lastDrops = 0
 
     init(
         dev: USBDevice, hello: Hello, mapping: TouchMapping,
-        bounds: CGRect?, raw: Bool
+        bounds: CGRect?, raw: Bool, onDrops: (() -> Void)? = nil
     ) {
         self.dev = dev
         self.hello = hello
         self.mapping = mapping
         self.bounds = bounds
         self.raw = raw
+        self.onDrops = onDrops
     }
 
     /// Blocking loop; runs until the device goes away.
@@ -91,9 +95,21 @@ final class TouchReader {
                 data.count == 12, let evt = TouchEvent(data)
             else { continue } /* timeout: no touch is the common case */
 
+            if evt.type == .stats {
+                /* The device drops tiles when the queue overruns, so the panel
+                 * no longer matches our hash table — force a full refresh. */
+                if evt.x > lastDrops {
+                    lastDrops = evt.x
+                    onDrops?()
+                }
+                if raw {
+                    print("STATS dropped=\(evt.x) resyncs=\(evt.y)")
+                }
+                continue
+            }
+
             if raw {
-                print(
-                    "\(evt.type) id=\(evt.id) panel=(\(evt.x),\(evt.y))")
+                print("\(evt.type) id=\(evt.id) panel=(\(evt.x),\(evt.y))")
                 continue
             }
             post(evt)
@@ -108,7 +124,6 @@ final class TouchReader {
         let pt = CGPoint(
             x: bounds.origin.x + u * bounds.width,
             y: bounds.origin.y + v * bounds.height)
-        last = pt
 
         switch evt.type {
         case .down:

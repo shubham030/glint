@@ -1,17 +1,21 @@
 import Foundation
 
-/// M4: split each frame into a tile grid, hash every tile, and send only the
-/// tiles whose contents changed. Horizontally adjacent dirty tiles are
+/// M4: split each frame into a tile grid, hash every tile, and emit packets
+/// only for tiles whose contents changed. Horizontally adjacent dirty tiles are
 /// coalesced into one packet to cut header overhead (README §5.2).
 ///
 /// Hashing rather than `SCStreamFrameInfoDirtyRects`: dirty rects are known to
-/// be unreliable on virtual displays, and hashing 307KB costs far less than a
+/// be unreliable on virtual displays, and hashing a frame costs far less than a
 /// wrongly-skipped tile costs in confusion.
-final class TileSender {
-    struct Stats {
-        var bytes = 0
-        var tiles = 0
-        var packets = 0
+///
+/// This type performs no I/O — it returns packets for a caller to write, which
+/// is what makes it testable without a device.
+public final class TileSender {
+    public struct Stats {
+        public var bytes = 0
+        public var tiles = 0
+        public var packets = 0
+        public var compressed = 0 /* packets sent as RLE */
     }
 
     private let panelW: Int
@@ -20,32 +24,43 @@ final class TileSender {
     private let tileH: Int
     private let cols: Int
     private let rows: Int
+    private let useRLE: Bool
     private var hashes: [UInt64]
     private var seq: UInt16 = 0
     private var primed = false
 
-    init(panelW: Int, panelH: Int, maxTileLen: Int, tileSize: Int = 64) {
+    public init(
+        panelW: Int, panelH: Int, maxTileLen: Int, allowRLE: Bool = false,
+        tileSize: Int = 64
+    ) {
         self.panelW = panelW
         self.panelH = panelH
         self.tileW = tileSize
         /* A coalesced run spans at most the full panel width, so the tile
-         * height is capped by what the device accepts in one payload. */
+         * height is capped by what the device accepts in one raw payload. */
         self.tileH = min(tileSize, max(1, maxTileLen / (panelW * 2)))
         self.cols = (panelW + tileSize - 1) / tileSize
         self.rows = (panelH + self.tileH - 1) / self.tileH
+        self.useRLE = allowRLE
         self.hashes = [UInt64](repeating: 0, count: cols * rows)
     }
 
-    var grid: String { "\(cols)x\(rows) tiles of \(tileW)x\(tileH)" }
+    public var grid: String {
+        "\(cols)x\(rows) tiles of \(tileW)x\(tileH)"
+            + (useRLE ? ", RLE when smaller" : "")
+    }
 
-    /// Marks every tile dirty so the next send is a full refresh.
-    func invalidate() {
+    /// Forces the next frame to be a full refresh — used on connect, on resume,
+    /// and whenever the device reports it dropped tiles.
+    public func invalidate() {
         primed = false
     }
 
-    func send(
-        _ dev: USBDevice, px: [UInt16], forceFull: Bool = false
-    ) throws -> Stats {
+    /// Dirty runs for this frame, as ready-to-write packets.
+    public func packets(
+        px: [UInt16], forceFull: Bool = false
+    ) -> (packets: [Data], stats: Stats) {
+        precondition(px.count == panelW * panelH, "frame size mismatch")
         var stats = Stats()
         let full = forceFull || !primed
         var runs: [(x: Int, y: Int, w: Int, h: Int)] = []
@@ -81,47 +96,68 @@ final class TileSender {
             }
         }
 
+        var out = [Data]()
+        out.reserveCapacity(runs.count)
+
         for (i, run) in runs.enumerated() {
             var flags: Glint.TileFlags = []
             if full { flags.insert(.fullRefresh) }
             if i == runs.count - 1 { flags.insert(.lastInFrame) }
 
+            let tile = extract(px, run)
+            var fmt = Glint.Fmt.rgb565
+            var payload = [UInt8]()
+
+            if useRLE {
+                let encoded = RLE.encode(tile)
+                if encoded.count < tile.count * 2 {
+                    fmt = .rle
+                    payload = encoded
+                    stats.compressed += 1
+                }
+            }
+
             var packet = tileHeader(
                 seq: seq, flags: flags,
                 x: UInt16(run.x), y: UInt16(run.y),
                 w: UInt16(run.w), h: UInt16(run.h),
-                payloadLen: UInt32(run.w * run.h * 2))
+                fmt: fmt,
+                payloadLen: UInt32(fmt == .rle ? payload.count : tile.count * 2))
 
-            if run.x == 0 && run.w == panelW {
-                /* Full-width run: rows are already contiguous. */
-                let start = run.y * panelW
-                let payload = Array(px[start..<(start + run.w * run.h)])
-                payload.withUnsafeBufferPointer {
-                    packet.append(
-                        UnsafeRawBufferPointer($0).bindMemory(to: UInt8.self))
-                }
+            if fmt == .rle {
+                packet.append(contentsOf: payload)
             } else {
-                var payload = [UInt16](repeating: 0, count: run.w * run.h)
-                for row in 0..<run.h {
-                    let src = (run.y + row) * panelW + run.x
-                    payload.replaceSubrange(
-                        (row * run.w)..<((row + 1) * run.w),
-                        with: px[src..<(src + run.w)])
-                }
-                payload.withUnsafeBufferPointer {
+                tile.withUnsafeBufferPointer {
                     packet.append(
                         UnsafeRawBufferPointer($0).bindMemory(to: UInt8.self))
                 }
             }
 
-            try dev.bulkWrite(packet)
             stats.bytes += packet.count
+            out.append(packet)
         }
 
-        stats.packets = runs.count
-        if !runs.isEmpty { seq &+= 1 }
+        stats.packets = out.count
+        if !out.isEmpty { seq &+= 1 }
         primed = true
-        return stats
+        return (out, stats)
+    }
+
+    private func extract(
+        _ px: [UInt16], _ run: (x: Int, y: Int, w: Int, h: Int)
+    ) -> [UInt16] {
+        if run.x == 0 && run.w == panelW {
+            let start = run.y * panelW
+            return Array(px[start..<(start + run.w * run.h)])
+        }
+        var tile = [UInt16](repeating: 0, count: run.w * run.h)
+        for row in 0..<run.h {
+            let src = (run.y + row) * panelW + run.x
+            tile.replaceSubrange(
+                (row * run.w)..<((row + 1) * run.w),
+                with: px[src..<(src + run.w)])
+        }
+        return tile
     }
 
     /// FNV-1a over the tile's pixels.
