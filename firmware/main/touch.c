@@ -11,9 +11,16 @@
 
 static const char *TAG = "touch";
 
-#define POLL_HZ         60
-#define MAX_POINTS      2
-#define MOVE_THRESHOLD  2 /* panel px; suppresses jitter on a still finger */
+#define POLL_HZ        60
+#define MAX_POINTS     2
+#define MOVE_THRESHOLD 2 /* panel px; suppresses jitter on a still finger */
+
+/* The vendored FT6336 driver fills coordinates by array position and never
+ * populates track_id, so a report is an unordered set of positions: when the
+ * first of two fingers lifts, the second shifts down an index. Contacts are
+ * therefore matched to slots by proximity, and a point further than this from
+ * every known contact is treated as a new one. */
+#define MATCH_RADIUS 60
 
 static esp_lcd_touch_handle_t s_tp;
 
@@ -21,6 +28,36 @@ typedef struct {
     bool down;
     uint16_t x, y;
 } point_state_t;
+
+static int nearest_slot(const point_state_t *slots, uint16_t x, uint16_t y)
+{
+    int best = -1;
+    long best_d2 = (long)MATCH_RADIUS * MATCH_RADIUS;
+
+    for (int i = 0; i < MAX_POINTS; i++) {
+        if (!slots[i].down) {
+            continue;
+        }
+        const long dx = (long)x - slots[i].x;
+        const long dy = (long)y - slots[i].y;
+        const long d2 = dx * dx + dy * dy;
+        if (d2 <= best_d2) {
+            best_d2 = d2;
+            best = i;
+        }
+    }
+    return best;
+}
+
+static int free_slot(const point_state_t *slots, const bool *claimed)
+{
+    for (int i = 0; i < MAX_POINTS; i++) {
+        if (!slots[i].down && !claimed[i]) {
+            return i;
+        }
+    }
+    return -1;
+}
 
 static void emit(uint8_t type, uint8_t id, uint16_t x, uint16_t y)
 {
@@ -38,7 +75,7 @@ static void emit(uint8_t type, uint8_t id, uint16_t x, uint16_t y)
 static void touch_task(void *arg)
 {
     (void)arg;
-    point_state_t prev[MAX_POINTS] = {0};
+    point_state_t slots[MAX_POINTS] = {0};
 
     for (;;) {
         esp_lcd_touch_read_data(s_tp);
@@ -46,30 +83,49 @@ static void touch_task(void *arg)
         esp_lcd_touch_point_data_t pts[MAX_POINTS] = {0};
         uint8_t count = 0;
         esp_lcd_touch_get_data(s_tp, pts, &count, MAX_POINTS);
-
-        bool seen[MAX_POINTS] = {0};
-        for (uint8_t i = 0; i < count && i < MAX_POINTS; i++) {
-            seen[i] = true;
-            if (!prev[i].down) {
-                emit(GLINT_EVT_DOWN, i, pts[i].x, pts[i].y);
-            } else {
-                const int dx = (int)pts[i].x - (int)prev[i].x;
-                const int dy = (int)pts[i].y - (int)prev[i].y;
-                if (dx * dx + dy * dy >= MOVE_THRESHOLD * MOVE_THRESHOLD) {
-                    emit(GLINT_EVT_MOVE, i, pts[i].x, pts[i].y);
-                } else {
-                    continue; /* keep prev coords: no drift */
-                }
-            }
-            prev[i].down = true;
-            prev[i].x = pts[i].x;
-            prev[i].y = pts[i].y;
+        if (count > MAX_POINTS) {
+            count = MAX_POINTS;
         }
 
-        for (uint8_t i = 0; i < MAX_POINTS; i++) {
-            if (prev[i].down && !seen[i]) {
-                emit(GLINT_EVT_UP, i, prev[i].x, prev[i].y);
-                prev[i].down = false;
+        bool claimed[MAX_POINTS] = {0};
+
+        for (uint8_t i = 0; i < count; i++) {
+            const uint16_t x = pts[i].x;
+            const uint16_t y = pts[i].y;
+
+            int slot = nearest_slot(slots, x, y);
+            if (slot >= 0 && claimed[slot]) {
+                slot = -1; /* another contact already took it this cycle */
+            }
+
+            if (slot < 0) {
+                slot = free_slot(slots, claimed);
+                if (slot < 0) {
+                    continue; /* more contacts than slots: ignore the extra */
+                }
+                claimed[slot] = true;
+                slots[slot].down = true;
+                slots[slot].x = x;
+                slots[slot].y = y;
+                emit(GLINT_EVT_DOWN, (uint8_t)slot, x, y);
+                continue;
+            }
+
+            claimed[slot] = true;
+            const int dx = (int)x - (int)slots[slot].x;
+            const int dy = (int)y - (int)slots[slot].y;
+            if (dx * dx + dy * dy < MOVE_THRESHOLD * MOVE_THRESHOLD) {
+                continue; /* keep the old coords so jitter cannot drift */
+            }
+            slots[slot].x = x;
+            slots[slot].y = y;
+            emit(GLINT_EVT_MOVE, (uint8_t)slot, x, y);
+        }
+
+        for (int i = 0; i < MAX_POINTS; i++) {
+            if (slots[i].down && !claimed[i]) {
+                emit(GLINT_EVT_UP, (uint8_t)i, slots[i].x, slots[i].y);
+                slots[i].down = false;
             }
         }
 

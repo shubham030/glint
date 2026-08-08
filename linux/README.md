@@ -152,9 +152,11 @@ the protocol headers and the firmware's own decoder, and that is all:
 - **`glint fb`.** Nothing has been read from a real `/dev/fb0`: not the ioctl
   struct layouts, not the truecolour-visual check, not the `read()`-based frame
   grab (some drivers only support `mmap`), not panning via `yoffset`.
-- **RLE end to end.** The encoder is verified against the format described in
-  `firmware/main/rle.c` by round-tripping through a Go decoder written from the
-  same rules. It has never been decoded *by the firmware*.
+- **RLE end to end.** The encoder round-trips through a Go decoder written from
+  the same rules, and `proto/fixture_test.go` pins its output byte-for-byte
+  against the Swift encoder's on a fixture the C decoder accepts — so the three
+  implementations agree on paper. It has still never been decoded *by the
+  firmware on the device*.
 - **Touch and STATS decoding.** The 12-byte layout is pinned by tests, but no
   real event has been parsed. The STATS field meanings (`x` = dropped tiles +
   sequence gaps, `y` = resyncs) are read off the current firmware source.
