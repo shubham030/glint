@@ -67,6 +67,12 @@ type Device struct {
 
 // Open finds the first device with the given ids and claims interface 0.
 func Open(vid, pid uint16) (*Device, error) {
+	// Discovery is plain filesystem reads and so is shared (and testable) on
+	// every platform; the transfers underneath are Linux-only, so say that up
+	// front rather than failing later with a confusing path error.
+	if !transportSupported {
+		return nil, ErrUnsupported
+	}
 	info, err := find(vid, pid)
 	if err != nil {
 		return nil, err

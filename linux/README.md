@@ -183,3 +183,36 @@ the protocol headers and the firmware's own decoder, and that is all:
 - **Device discovery** across hubs, multiple matching devices, and re-plug
   (there is no hotplug/reconnect logic: if the device goes away, the process
   exits with an error).
+
+## Testing without the panel
+
+Three layers, in increasing fidelity.
+
+**1. Unit tests, any machine.** `go test ./...` covers the wire format, the tile
+coalescer, the RLE codec, the scaler, the framebuffer pixel conversion, and —
+since discovery is plain filesystem reads — device discovery against a synthetic
+sysfs tree (`usbfs/sysfs_test.go`): hubs, non-matching devices, missing and
+malformed attributes, the endpoint descriptor, and the speed fallback.
+
+**2. Real Linux in a container**, which matters because on macOS the `_linux.go`
+files are replaced by stubs and never execute:
+
+```sh
+docker run --rm -v "$PWD":/src -w /src golang:1.23 go test ./...
+docker run --rm --platform linux/arm/v7 -v "$PWD":/src -w /src \
+    arm32v7/golang:1.23 go test ./...
+```
+
+The second one is the valuable one: the usbfs ioctl request numbers are computed
+from `unsafe.Sizeof` on structs containing a pointer, so they differ between
+32- and 64-bit userspace. Running on real 32-bit ARM checks the layout the Pi
+will use, rather than a layout modelled from a 64-bit host.
+
+**What a container cannot do:** there is no USB passthrough on macOS (a
+privileged container sees only the virtual xHCI root hubs), and no
+`/lib/modules`, so no `vfb` either. No usbfs or fbdev ioctl has ever been
+executed against a kernel. That needs real hardware.
+
+**3. A Pi with the panel attached** is the only real test. `glint hello` first —
+it exercises discovery, claim, and a control transfer, which is most of the
+transport in one command.

@@ -1,4 +1,3 @@
-//go:build linux
 
 package usbfs
 
@@ -12,7 +11,11 @@ import (
 
 // sysfsUSBDevices holds one directory per USB device and per interface; only
 // the device directories carry idVendor/idProduct.
-const sysfsUSBDevices = "/sys/bus/usb/devices"
+// Overridable so discovery can be tested against a synthetic tree.
+var (
+	sysfsUSBDevices = "/sys/bus/usb/devices"
+	devBusUSB       = "/dev/bus/usb"
+)
 
 // find locates the first device matching vid:pid and works out how to reach it.
 func find(vid, pid uint16) (deviceInfo, error) {
@@ -35,7 +38,7 @@ func find(vid, pid uint16) (deviceInfo, error) {
 		}
 		speed, _ := readAttr(dir, "speed")
 		return deviceInfo{
-			path:      fmt.Sprintf("/dev/bus/usb/%03d/%03d", bus, dev),
+			path:      filepath.Join(devBusUSB, fmt.Sprintf("%03d", bus), fmt.Sprintf("%03d", dev)),
 			speed:     speed,
 			maxPacket: bulkPacketSize(dir, e.Name(), speed),
 		}, nil
