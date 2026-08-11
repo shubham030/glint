@@ -40,6 +40,39 @@ SPI panel — SPI is the bottleneck, dirty-rect tiling is the design driver.
 | LCD RST | 27 |
 | LCD backlight | 28 (glint drives it with LEDC PWM for CMD_BACKLIGHT) |
 
+### A shared board is a failure mode
+
+Three projects flash this same P4 — carplay/mapcast, glint, and macropad
+(MacroVault) — and none of them pins the board by identity, so two Claude
+sessions can flash it minutes apart. Their app regions overlap (glint's ~359 KB
+app at `0x10000` swallows macropad's otadata at `0x0F000` and app at `0x20000`),
+so each write corrupts the other.
+
+**The failure signature misleads in both directions**, which is what makes this
+worth writing down: every tool involved reports a plausible *local* cause. A
+mid-write abort reads as a flaky UART; the resulting boot loop reads as a crash
+in whatever you changed last. On 2026-08-11 one session bisected its own new
+code and this one blamed the UART, and neither suspected a second writer.
+
+> If a shared board shows an unexplained boot loop or a mid-write abort, look
+> for a second writer *before* bisecting your own change.
+
+Tells that it is another writer, not your bug:
+
+- `esp_image: segment N ... vaddr=<ASCII-looking>` and a
+  `verify_load_addresses` assert — that is another firmware's bytes where a
+  segment header belongs. Confirm with `esptool image_info <your .bin>`: if the
+  local file validates, the file is fine and the flash is not.
+- A flash that writes the bootloader, verifies, then dies with *"device reports
+  readiness to read but returned no data"*.
+- `lsof /dev/cu.usbmodem*` is necessary but **not sufficient** — a squatter on a
+  duty cycle (a 35 s capture loop, say) passes a short sample.
+
+`ps -Ao pid,command | grep esptool` names the offending project; `ListAgents` and
+`SendMessage` reach that session directly. Recovery is `erase_flash` then a
+**full** flash — never app-only, or the previous owner's partition table
+survives and will not match your bootloader.
+
 ### Flashing
 
 Over the CH343 UART port (`/dev/cu.usbmodem5B91…`) — verified working
