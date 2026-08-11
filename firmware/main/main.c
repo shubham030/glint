@@ -57,7 +57,14 @@ void app_main(void)
     ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_cfg, &i2c_bus));
 
 #if BOARD_HAS_AXP2101
-    ESP_ERROR_CHECK(power_init(i2c_bus));
+    /* Non-fatal, like touch: without the PMU the panel stays dark, but USB
+     * still comes up — which keeps the device diagnosable (and testable on a
+     * board that simply has no AXP2101) instead of boot-looping. */
+    const esp_err_t pmu = power_init(i2c_bus);
+    if (pmu != ESP_OK) {
+        ESP_LOGW(TAG, "PMU init failed (%s) — panel will stay dark",
+                 esp_err_to_name(pmu));
+    }
 #endif
 
     ESP_ERROR_CHECK(lcd_init());

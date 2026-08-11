@@ -67,6 +67,19 @@ if mode == "doctor" {
     runDoctor()
 }
 
+/* With more than one panel attached the firmware's fixed serial number cannot
+ * distinguish them, so list bus/address and let the caller pick with --dev. */
+if CommandLine.arguments.contains("--list") {
+    let found = (try? USBDevice.list(vid: Glint.vid, pid: Glint.pid)) ?? []
+    if found.isEmpty {
+        print("no glint devices found")
+    }
+    for (i, d) in found.enumerated() {
+        print("--dev \(i): \(d.description)")
+    }
+    exit(0)
+}
+
 /// Long-running modes wait for the panel; one-shot commands fail fast.
 let sessionModes: Set<String> = ["display", "mirror", "touch", "stats"]
 let waitForDevice =
@@ -74,7 +87,8 @@ let waitForDevice =
 
 do {
     let dev = try USBDevice.open(
-        vid: Glint.vid, pid: Glint.pid, waitForDevice: waitForDevice)
+        vid: Glint.vid, pid: Glint.pid, waitForDevice: waitForDevice,
+        index: argValue("--dev", default: 0))
     guard let hello = Hello(try dev.controlRead(.hello, length: 24)) else {
         fail("bad HELLO reply — protocol mismatch?")
     }

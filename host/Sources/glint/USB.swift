@@ -37,16 +37,59 @@ final class USBDevice {
     /// the ZLP rule: transfers that are an exact multiple must be terminated.
     let maxPacket: Int
 
+    /// One matching device on the bus. Firmware currently reports a fixed
+    /// serial number, so bus/address is the only way to tell two panels apart.
+    struct Found {
+        let bus: UInt8
+        let address: UInt8
+        let speed: String
+
+        var description: String {
+            "bus \(bus) addr \(address) (\(speed)-speed)"
+        }
+    }
+
+    /// Every device matching vid:pid, in libusb's enumeration order.
+    static func list(vid: UInt16, pid: UInt16) throws -> [Found] {
+        var ctx: OpaquePointer?
+        let rc = libusb_init(&ctx)
+        guard rc == 0 else { throw USBError.libusb("libusb_init", rc) }
+        defer { libusb_exit(ctx) }
+
+        var devices: UnsafeMutablePointer<OpaquePointer?>?
+        let count = libusb_get_device_list(ctx, &devices)
+        guard count >= 0, let devices else { return [] }
+        defer { libusb_free_device_list(devices, 1) }
+
+        var found = [Found]()
+        for i in 0..<Int(count) {
+            guard let dev = devices[i] else { continue }
+            var desc = libusb_device_descriptor()
+            guard libusb_get_device_descriptor(dev, &desc) == 0,
+                desc.idVendor == vid, desc.idProduct == pid
+            else { continue }
+
+            let speed = libusb_get_device_speed(dev)
+            found.append(
+                Found(
+                    bus: libusb_get_bus_number(dev),
+                    address: libusb_get_device_address(dev),
+                    speed: speed >= LIBUSB_SPEED_HIGH.rawValue
+                        ? "high" : "full"))
+        }
+        return found
+    }
+
     /// Opens the device, optionally waiting for it to appear. Cables on this
     /// board get swapped constantly, so a long-running session should sit and
     /// wait rather than fail at startup.
     static func open(
-        vid: UInt16, pid: UInt16, waitForDevice: Bool
+        vid: UInt16, pid: UInt16, waitForDevice: Bool, index: Int = 0
     ) throws -> USBDevice {
         var announced = false
         while true {
             do {
-                return try USBDevice(vid: vid, pid: pid)
+                return try USBDevice(vid: vid, pid: pid, index: index)
             } catch let error as USBError {
                 guard waitForDevice, case .notFound = error else { throw error }
                 if !announced {
@@ -59,13 +102,15 @@ final class USBDevice {
         }
     }
 
-    init(vid: UInt16, pid: UInt16) throws {
+    /// `index` picks among several matching devices (see `list`); 0 is the
+    /// first, which is what libusb would have chosen anyway.
+    init(vid: UInt16, pid: UInt16, index: Int = 0) throws {
         var c: OpaquePointer?
         let rc = libusb_init(&c)
         guard rc == 0 else { throw USBError.libusb("libusb_init", rc) }
         ctx = c
 
-        guard let h = libusb_open_device_with_vid_pid(ctx, vid, pid) else {
+        guard let h = USBDevice.openMatching(ctx, vid, pid, index) else {
             libusb_exit(ctx)
             ctx = nil
             throw USBError.notFound
@@ -83,6 +128,33 @@ final class USBDevice {
             ctx = nil
             throw USBError.libusb("claim_interface", claim)
         }
+    }
+
+    private static func openMatching(
+        _ ctx: OpaquePointer?, _ vid: UInt16, _ pid: UInt16, _ index: Int
+    ) -> OpaquePointer? {
+        if index == 0 {
+            return libusb_open_device_with_vid_pid(ctx, vid, pid)
+        }
+        var devices: UnsafeMutablePointer<OpaquePointer?>?
+        let count = libusb_get_device_list(ctx, &devices)
+        guard count > 0, let devices else { return nil }
+        defer { libusb_free_device_list(devices, 1) }
+
+        var seen = 0
+        for i in 0..<Int(count) {
+            guard let dev = devices[i] else { continue }
+            var desc = libusb_device_descriptor()
+            guard libusb_get_device_descriptor(dev, &desc) == 0,
+                desc.idVendor == vid, desc.idProduct == pid
+            else { continue }
+            if seen == index {
+                var handle: OpaquePointer?
+                return libusb_open(dev, &handle) == 0 ? handle : nil
+            }
+            seen += 1
+        }
+        return nil
     }
 
     deinit {
