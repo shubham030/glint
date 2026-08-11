@@ -61,6 +61,13 @@ func run(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// Reports on the framebuffer without needing the panel, which is the only
+	// way to check the fbdev ioctls and the reported stride on a machine the
+	// panel is not plugged into.
+	if mode == "fbinfo" {
+		return runFramebufferInfo(rest)
+	}
+
 	dev, err := usbfs.Open(proto.VendorID, proto.ProductID)
 	if err != nil {
 		return err
@@ -81,6 +88,7 @@ func run(args []string) error {
 var modes = map[string]bool{
 	"hello": true, "bars": true, "image": true, "fb": true,
 	"stats": true, "touch": true, "backlight": true, "sleep": true,
+	"fbinfo": true,
 }
 
 func dispatch(ctx context.Context, dev *usbfs.Device, hello proto.Hello, mode string, args []string) error {
