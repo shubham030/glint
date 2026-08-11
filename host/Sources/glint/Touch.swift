@@ -67,7 +67,7 @@ struct TouchMapping {
 /// Drains touch events and either prints them (calibration) or posts synthetic
 /// mouse events onto the target display.
 final class TouchReader {
-    private let dev: USBDevice
+    private let dev: Link
     private let hello: Hello
     private let mapping: TouchMapping
     private let bounds: CGRect?
@@ -79,7 +79,7 @@ final class TouchReader {
     private var lastResyncs = -1
 
     init(
-        dev: USBDevice, hello: Hello, mapping: TouchMapping,
+        dev: Link, hello: Hello, mapping: TouchMapping,
         bounds: CGRect?, raw: Bool, onDrops: (() -> Void)? = nil
     ) {
         self.dev = dev
@@ -98,8 +98,8 @@ final class TouchReader {
         while true {
             let data: Data
             do {
-                data = try dev.bulkRead(length: 512, timeoutMs: 500)
-            } catch let error as USBError where error.isDisconnect {
+                data = try dev.readEvents(timeoutMs: 500)
+            } catch let error where isLinkGone(error) {
                 FileHandle.standardError.write(
                     Data("glint: event pipe closed (panel gone)\n".utf8))
                 return

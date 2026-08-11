@@ -5,7 +5,7 @@ import GlintCore
 /// which panel axis moved. This exists because the mapping depends on how the
 /// touch glass is wired relative to the panel's scan direction — three stacked
 /// transforms that are far easier to measure than to reason about.
-func calibrateTouch(dev: USBDevice, hello: Hello, landscape: Bool) {
+func calibrateTouch(dev: Link, hello: Hello, landscape: Bool) {
     let corners = [
         "TOP-LEFT", "TOP-RIGHT", "BOTTOM-LEFT",
     ]
@@ -52,14 +52,14 @@ func calibrateTouch(dev: USBDevice, hello: Hello, landscape: Bool) {
 }
 
 /// Returns the coordinates of the next DOWN event, ignoring MOVE/UP/STATS.
-private func waitForTap(dev: USBDevice, timeoutSec: Int = 60) -> (x: Int, y: Int)? {
+private func waitForTap(dev: Link, timeoutSec: Int = 60) -> (x: Int, y: Int)? {
     let deadline = Date().addingTimeInterval(Double(timeoutSec))
     while Date() < deadline {
         let data: Data
         do {
             /* A full packet, since events can arrive coalesced. */
-            data = try dev.bulkRead(length: 512, timeoutMs: 500)
-        } catch let error as USBError where error.isDisconnect {
+            data = try dev.readEvents(timeoutMs: 500)
+        } catch let error where isLinkGone(error) {
             return nil
         } catch {
             Thread.sleep(forTimeInterval: 0.1)

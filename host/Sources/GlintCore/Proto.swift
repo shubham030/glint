@@ -10,6 +10,7 @@ public enum Glint {
     public static let magicHello: UInt32 = 0x4C48_3450 // 'P4HL'
     public static let magicTile: UInt32 = 0x4454_3450 // 'P4TD'
     public static let magicEvt: UInt32 = 0x5645_3450 // 'P4EV'
+    public static let magicReq: UInt32 = 0x5152_3450 // 'P4RQ'
     public static let protoVer: UInt16 = 1
 
     public enum Cmd: UInt8 {
@@ -80,6 +81,21 @@ public struct Hello {
     public func supports(_ fmt: Glint.Fmt) -> Bool {
         fmtMask & fmt.maskBit != 0
     }
+}
+
+/// 8-byte in-band control request, for transports with no control pipe.
+public func requestPacket(_ cmd: Glint.Cmd, value: UInt16) -> Data {
+    var d = Data(capacity: 8)
+    let magic = Glint.magicReq
+    d.append(UInt8(magic & 0xFF))
+    d.append(UInt8((magic >> 8) & 0xFF))
+    d.append(UInt8((magic >> 16) & 0xFF))
+    d.append(UInt8((magic >> 24) & 0xFF))
+    d.append(cmd.rawValue)
+    d.append(0) // rsvd
+    d.append(UInt8(value & 0xFF))
+    d.append(UInt8(value >> 8))
+    return d
 }
 
 /// 24-byte tile header, little-endian.

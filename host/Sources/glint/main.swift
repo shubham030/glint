@@ -37,10 +37,10 @@ func argValue(_ name: String, default def: Int) -> Int {
 /// Writes one whole frame, reusing the tiling path so every mode shares one
 /// encoder (and gets RLE for free where the device supports it).
 func sendFullFrame(
-    _ dev: USBDevice, _ tiles: TileSender, px: [UInt16]
+    _ dev: Link, _ tiles: TileSender, px: [UInt16]
 ) throws -> Int {
     let (packets, stats) = tiles.packets(px: px, forceFull: true)
-    try dev.bulkWriteBatched(packets)
+    try dev.send(packets)
     return stats.bytes
 }
 
@@ -84,17 +84,26 @@ let waitForDevice =
     sessionModes.contains(mode) && !CommandLine.arguments.contains("--no-wait")
 
 do {
-    let dev = try USBDevice.open(
-        vid: Glint.vid, pid: Glint.pid, waitForDevice: waitForDevice,
-        index: argValue("--dev", default: 0))
-    guard let hello = Hello(try dev.controlRead(.hello, length: 24)) else {
-        fail("bad HELLO reply — protocol mismatch?")
+    /* --net picks the wireless transport; everything above the Link protocol
+     * is identical either way. */
+    let dev: Link
+    if let i = CommandLine.arguments.firstIndex(of: "--net"),
+        i + 1 < CommandLine.arguments.count
+    {
+        dev = try NetLink(
+            host: CommandLine.arguments[i + 1],
+            port: UInt16(argValue("--port", default: 7788)))
+    } else {
+        dev = try USBDevice.open(
+            vid: Glint.vid, pid: Glint.pid, waitForDevice: waitForDevice,
+            index: argValue("--dev", default: 0))
     }
+    let hello = try dev.handshake()
     let fw = String(format: "%08x", hello.fwVer)
     print(
         "panel \(hello.panelW)x\(hello.panelH), fmt_mask=\(hello.fmtMask), "
             + "max_tile=\(hello.maxTileLen), touch=\(hello.touchPoints)pt, fw=\(fw), "
-            + "usb=\(dev.maxPacket == 512 ? "high" : "full")-speed")
+            + "link=\(dev.describeLink)")
 
     switch mode {
     case "hello":
@@ -104,13 +113,13 @@ do {
         guard CommandLine.arguments.count > 2,
             let v = UInt16(CommandLine.arguments[2]), v <= 255
         else { fail("usage: glint backlight <0-255>") }
-        try dev.controlWrite(.backlight, value: v)
+        try dev.control(.backlight, value: v)
 
     case "sleep":
         guard CommandLine.arguments.count > 2,
             let v = UInt16(CommandLine.arguments[2]), v <= 1
         else { fail("usage: glint sleep <0|1>") }
-        try dev.controlWrite(.sleep, value: v)
+        try dev.control(.sleep, value: v)
 
     case "image":
         guard CommandLine.arguments.count > 2 else {
@@ -125,7 +134,7 @@ do {
                 path: path, width: hello.panelW, height: hello.panelH,
                 mode: mode, landscape: landscape)
         else { fail("could not decode '\(path)'") }
-        try dev.controlWrite(.reset)
+        try dev.control(.reset, value: 0)
         let tiles = TileSender(
             panelW: hello.panelW, panelH: hello.panelH,
             maxTileLen: hello.maxTileLen, allowRLE: hello.supports(.rle))
@@ -246,7 +255,7 @@ do {
             fail("device max_tile_len too small")
         }
 
-        try dev.controlWrite(.reset)
+        try dev.control(.reset, value: 0)
 
         /* A throughput test wants whole frames, not dirty tiles — and raw
          * pixels, since colour bars would compress unrealistically well. */
@@ -271,7 +280,7 @@ do {
             let afterRender = Date()
             let (packets, pstats) = tiles.packets(px: px, forceFull: true)
             let afterEncode = Date()
-            try dev.bulkWriteBatched(packets)
+            try dev.send(packets)
             let afterWrite = Date()
 
             renderSec += afterRender.timeIntervalSince(frameStart)

@@ -7,7 +7,7 @@ import ScreenCaptureKit
 /// Frames arrive on a serial queue; the send is synchronous, so SCStream's
 /// own frame dropping provides backpressure when USB+SPI can't keep up.
 final class MirrorSession: NSObject, SCStreamOutput, SCStreamDelegate {
-    private let dev: USBDevice
+    private let dev: Link
     private let hello: Hello
     private let landscape: Bool
     private let satPct: Int
@@ -29,7 +29,7 @@ final class MirrorSession: NSObject, SCStreamOutput, SCStreamDelegate {
     private let targetDisplayID: CGDirectDisplayID?
 
     init(
-        dev: USBDevice, hello: Hello, landscape: Bool,
+        dev: Link, hello: Hello, landscape: Bool,
         displayID: CGDirectDisplayID? = nil, satPct: Int = 100,
         conPct: Int = 100, fullFrames: Bool = false
     ) {
@@ -155,13 +155,13 @@ final class MirrorSession: NSObject, SCStreamOutput, SCStreamDelegate {
 
         do {
             let (packets, s) = tiles.packets(px: px, forceFull: fullFrames)
-            try dev.bulkWriteBatched(packets)
+            try dev.send(packets)
             bytes += s.bytes
             tilesSent += s.tiles
             compressed += s.compressed
             frames += 1
             if s.packets == 0 { idleFrames += 1 }
-        } catch let error as USBError where error.isDisconnect {
+        } catch let error where isLinkGone(error) {
             /* The panel was unplugged. Exiting beats spraying one error per
              * frame; a supervisor (or the user) restarts us and the session
              * waits for the device to come back. */
