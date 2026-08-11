@@ -7,13 +7,18 @@
 #include "esp_check.h"
 #include "esp_lcd_panel_io.h"
 #include "esp_lcd_panel_vendor.h"
+
+#if BOARD_LCD_QSPI
+#include "esp_lcd_co5300.h"
+#else
 #include "esp_lcd_st7796.h"
+#endif
 
 #if BOARD_BL_USE_LEDC
 #include "driver/ledc.h"
 #endif
 
-#if CONFIG_IDF_TARGET_ESP32S3
+#if CONFIG_GLINT_BOARD_S3_LCD35
 #include "board_init_s3.h"
 #endif
 
@@ -60,6 +65,25 @@ static void backlight_set(uint8_t level)
     ledc_update_duty(BL_LEDC_MODE, BL_LEDC_CHANNEL);
 }
 
+#elif BOARD_BL_USE_PANEL
+
+/* AMOLED: no backlight exists — each pixel emits — so brightness is a panel
+ * register. Set after init, since the panel handle must exist first. */
+static esp_err_t backlight_init(void)
+{
+    return ESP_OK;
+}
+
+static void backlight_set(uint8_t level)
+{
+    if (s_panel != NULL) {
+        /* The protocol carries 0..255; this panel wants a percentage and
+         * rejects anything above 100. */
+        esp_lcd_panel_co5300_set_brightness(s_panel,
+                                            ((int)level * 100) / 255);
+    }
+}
+
 #else /* plain GPIO backlight, as mapcast drives the P4 board */
 
 static esp_err_t backlight_init(void)
@@ -82,6 +106,18 @@ esp_err_t lcd_init(void)
 {
     ESP_RETURN_ON_ERROR(backlight_init(), TAG, "backlight");
 
+#if BOARD_LCD_QSPI
+    /* Four data lines and no DC pin: the CO5300 carries the command in-band,
+     * which is why lcd_cmd_bits is 32 rather than 8. */
+    const spi_bus_config_t bus_cfg = {
+        .sclk_io_num = BOARD_PIN_LCD_SCLK,
+        .data0_io_num = BOARD_PIN_LCD_D0,
+        .data1_io_num = BOARD_PIN_LCD_D1,
+        .data2_io_num = BOARD_PIN_LCD_D2,
+        .data3_io_num = BOARD_PIN_LCD_D3,
+        .max_transfer_sz = BOARD_MAX_TILE_LEN + 64,
+    };
+#else
     const spi_bus_config_t bus_cfg = {
         .sclk_io_num = BOARD_PIN_LCD_SCLK,
         .mosi_io_num = BOARD_PIN_LCD_MOSI,
@@ -90,17 +126,24 @@ esp_err_t lcd_init(void)
         .quadhd_io_num = -1,
         .max_transfer_sz = BOARD_MAX_TILE_LEN + 64,
     };
+#endif
     ESP_RETURN_ON_ERROR(
         spi_bus_initialize(BOARD_LCD_SPI_HOST, &bus_cfg, SPI_DMA_CH_AUTO), TAG,
         "spi bus");
 
     const esp_lcd_panel_io_spi_config_t io_cfg = {
         .cs_gpio_num = BOARD_PIN_LCD_CS,
+#if BOARD_LCD_QSPI
+        .dc_gpio_num = -1,
+        .lcd_cmd_bits = 32,
+        .flags.quad_mode = true,
+#else
         .dc_gpio_num = BOARD_PIN_LCD_DC,
+        .lcd_cmd_bits = 8,
+#endif
         .spi_mode = BOARD_LCD_SPI_MODE,
         .pclk_hz = BOARD_LCD_PCLK_HZ,
         .trans_queue_depth = 10,
-        .lcd_cmd_bits = 8,
         .lcd_param_bits = 8,
     };
     esp_lcd_panel_io_handle_t io = NULL;
@@ -109,7 +152,11 @@ esp_err_t lcd_init(void)
                                  &io_cfg, &io),
         TAG, "panel io");
 
-#if CONFIG_IDF_TARGET_ESP32S3
+#if BOARD_LCD_QSPI
+    const co5300_vendor_config_t vendor_cfg = {
+        .flags.use_qspi_interface = 1,
+    };
+#elif CONFIG_GLINT_BOARD_S3_LCD35
     /* Waveshare's panel wants its own init table; the registry defaults are
      * what mapcast proved on the P4 board, so P4 passes no vendor config. */
     static const st7796_vendor_config_t vendor_cfg = {
@@ -120,23 +167,41 @@ esp_err_t lcd_init(void)
 #endif
     const esp_lcd_panel_dev_config_t panel_cfg = {
         .reset_gpio_num = BOARD_PIN_LCD_RST,
+#if BOARD_LCD_QSPI
+        .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB,
+#else
         .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_BGR,
+#endif
         .bits_per_pixel = 16,
-#if CONFIG_IDF_TARGET_ESP32S3
+#if BOARD_LCD_QSPI || CONFIG_GLINT_BOARD_S3_LCD35
         .vendor_config = (void *)&vendor_cfg,
 #endif
     };
+
+#if BOARD_LCD_QSPI
+    ESP_RETURN_ON_ERROR(esp_lcd_new_panel_co5300(io, &panel_cfg, &s_panel), TAG,
+                        "co5300");
+#else
     ESP_RETURN_ON_ERROR(esp_lcd_new_panel_st7796(io, &panel_cfg, &s_panel), TAG,
                         "st7796");
+#endif
     ESP_RETURN_ON_ERROR(esp_lcd_panel_reset(s_panel), TAG, "reset");
     ESP_RETURN_ON_ERROR(esp_lcd_panel_init(s_panel), TAG, "init");
+#if BOARD_LCD_INVERT
     ESP_RETURN_ON_ERROR(esp_lcd_panel_invert_color(s_panel, true), TAG,
                         "invert");
+#endif
+#ifdef BOARD_LCD_GAP_X
+    ESP_RETURN_ON_ERROR(
+        esp_lcd_panel_set_gap(s_panel, BOARD_LCD_GAP_X, BOARD_LCD_GAP_Y), TAG,
+        "gap");
+#endif
     ESP_RETURN_ON_ERROR(
         esp_lcd_panel_mirror(s_panel, BOARD_LCD_MIRROR_X, BOARD_LCD_MIRROR_Y),
         TAG, "mirror");
     ESP_RETURN_ON_ERROR(esp_lcd_panel_disp_on_off(s_panel, true), TAG,
                         "disp on");
+    backlight_set(s_bl_level); /* AMOLED needs the panel handle to exist */
     return ESP_OK;
 }
 

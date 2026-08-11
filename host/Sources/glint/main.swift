@@ -40,9 +40,7 @@ func sendFullFrame(
     _ dev: USBDevice, _ tiles: TileSender, px: [UInt16]
 ) throws -> Int {
     let (packets, stats) = tiles.packets(px: px, forceFull: true)
-    for packet in packets {
-        try dev.bulkWrite(packet)
-    }
+    try dev.bulkWriteBatched(packets)
     return stats.bytes
 }
 
@@ -258,11 +256,26 @@ do {
         let start = Date()
         var lastReport = start
 
+        /* Split the frame time so a slow link can be told apart from slow
+         * frame preparation — guessing at that wasted three attempts. */
+        var renderSec = 0.0
+        var encodeSec = 0.0
+        var writeSec = 0.0
+
         while Date().timeIntervalSince(start) < Double(seconds) {
             let frameStart = Date()
             let px = renderColorBars(
                 width: hello.panelW, height: hello.panelH, phase: Int(seq) * 4)
-            sentBytes += try sendFullFrame(dev, tiles, px: px)
+            let afterRender = Date()
+            let (packets, pstats) = tiles.packets(px: px, forceFull: true)
+            let afterEncode = Date()
+            try dev.bulkWriteBatched(packets)
+            let afterWrite = Date()
+
+            renderSec += afterRender.timeIntervalSince(frameStart)
+            encodeSec += afterEncode.timeIntervalSince(afterRender)
+            writeSec += afterWrite.timeIntervalSince(afterEncode)
+            sentBytes += pstats.bytes
             seq &+= 1
 
             if Date().timeIntervalSince(lastReport) >= 1 {
@@ -285,6 +298,13 @@ do {
             format: "sent %d frames, %.1f KB, %.2f MB/s, effective %.1f fps",
             seq, Double(sentBytes) / 1024,
             Double(sentBytes) / elapsed / 1_000_000, Double(seq) / elapsed))
+        let n = max(1.0, Double(seq))
+        print(String(
+            format:
+                "per frame: render %.1f ms, encode %.1f ms, usb write %.1f ms "
+                + "(%.0f%% of the frame)",
+            renderSec / n * 1000, encodeSec / n * 1000, writeSec / n * 1000,
+            writeSec / max(0.001, renderSec + encodeSec + writeSec) * 100))
 
     default:
         fail(

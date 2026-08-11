@@ -76,14 +76,26 @@ void app_main(void)
 
     xTaskCreatePinnedToCore(lcd_task, "lcd", 4096, tile_queue, 9, NULL, 0);
 
+#if CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
+    /* USB-Serial-JTAG and the OTG controller share the USB PHY, so a build that
+     * logs over USB cannot also be a USB device. Useful for panel bring-up on a
+     * board with no UART bridge; useless as a display. */
+    ESP_LOGW(TAG, "console owns USB — vendor interface disabled (bring-up build)");
+    (void)tile_queue;
+#else
     ESP_ERROR_CHECK(usb_vendor_init(tile_queue));
+#endif
 
+#if BOARD_HAS_FT6336
     /* Touch is a nice-to-have: log and carry on if the panel doesn't answer. */
     const esp_err_t tp = touch_init(i2c_bus);
     if (tp != ESP_OK) {
         ESP_LOGW(TAG, "touch init failed (%s) — display only",
                  esp_err_to_name(tp));
     }
+#else
+    (void)i2c_bus; /* this board's touch controller has no driver here yet */
+#endif
 
     ESP_LOGI(TAG, "glint fw ready: %dx%d", BOARD_LCD_H_RES, BOARD_LCD_V_RES);
 }

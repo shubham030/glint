@@ -5,3 +5,5 @@ dependencies:
   espressif/esp_lcd_st7796: "^1.4"
   # base driver for the vendored esp_lcd_touch_ft6336 component (M5)
   espressif/esp_lcd_touch: "^1.1.2"
+  # CO5300 AMOLED (QSPI) — the S3-Touch-AMOLED-1.75 board profile
+  espressif/esp_lcd_co5300: "^2.1.0"

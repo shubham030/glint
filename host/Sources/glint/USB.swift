@@ -199,6 +199,32 @@ final class USBDevice {
         return Data(buf.prefix(Int(got)))
     }
 
+    /// Writes several packets as one transfer.
+    ///
+    /// The device parses a byte stream and does not care where transfer
+    /// boundaries fall, so a frame's packets can be concatenated. Each separate
+    /// `bulkWrite` costs a blocking round trip during which the link is idle —
+    /// at full speed that overhead dominates, since a 64-byte packet is emptied
+    /// far faster than the next transfer can be submitted.
+    func bulkWriteBatched(
+        endpoint: UInt8 = 0x01, _ packets: [Data],
+        maxBatch: Int = 256 * 1024, timeoutMs: UInt32 = 5000
+    ) throws {
+        var batch = Data()
+        batch.reserveCapacity(min(maxBatch, 64 * 1024))
+
+        for packet in packets {
+            if !batch.isEmpty && batch.count + packet.count > maxBatch {
+                try bulkWrite(endpoint: endpoint, batch, timeoutMs: timeoutMs)
+                batch.removeAll(keepingCapacity: true)
+            }
+            batch.append(packet)
+        }
+        if !batch.isEmpty {
+            try bulkWrite(endpoint: endpoint, batch, timeoutMs: timeoutMs)
+        }
+    }
+
     func bulkWrite(
         endpoint: UInt8 = 0x01, _ data: Data, timeoutMs: UInt32 = 2000
     ) throws {

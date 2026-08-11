@@ -155,9 +155,7 @@ final class MirrorSession: NSObject, SCStreamOutput, SCStreamDelegate {
 
         do {
             let (packets, s) = tiles.packets(px: px, forceFull: fullFrames)
-            for packet in packets {
-                try dev.bulkWrite(packet)
-            }
+            try dev.bulkWriteBatched(packets)
             bytes += s.bytes
             tilesSent += s.tiles
             compressed += s.compressed
