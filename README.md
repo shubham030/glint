@@ -116,6 +116,33 @@ bytes produced by the real Swift encoder are decoded by the real C decoder
 bytes (`linux/proto/fixture_test.go`). If any implementation's format drifts,
 that test fails instead of the panel smearing.
 
+## Throughput, and what actually limits it
+
+Both boards are limited by the link, not by the host: profiling a full-frame
+send shows **94–100% of each frame is the USB write**, with render and encode
+together under 3 ms.
+
+| | ESP32-P4 (USB high speed) | ESP32-S3 (USB **full speed** only) |
+|---|---|---|
+| Full-frame throughput | **7.9 MB/s** | 0.46 MB/s |
+| Full-screen frame rate | **25.7 fps** (320×480) | ~1 fps (466×466) |
+| Bound by | the ST7796's ~8 MB/s SPI bus | the 1.2 MB/s full-speed USB ceiling |
+
+**Batching packets into one bulk write was worth +74% on the P4** (4.53 → 7.89
+MB/s), because a blocking transfer per tile left the link idle in between. The
+same change measured *nothing* at full speed, where the link is so slow that
+per-transfer overhead disappears — which is why it is worth measuring a change
+on the hardware whose limit you are actually chasing.
+
+The P4 now sits at its panel's SPI ceiling, so further gains there need the DSI
+upgrade in [DESIGN.md](DESIGN.md) §8 rather than better software. The S3's lever
+is content locality instead: dirty tiling brings a moving desktop from 424 KB to
+~91 KB per frame, and RLE compresses flat regions on top.
+
+Things that measured **no** improvement, so they are not worth retrying:
+enlarging the device's vendor RX FIFO (64 B → 4096 B at full speed) and
+bypassing the USB hub to attach the board directly.
+
 ## Measured numbers
 
 On the ESP32-P4 board (USB high speed, ST7796 SPI at 80 MHz):
