@@ -27,6 +27,7 @@ const usage = `usage: glint <mode> [flags]
   touch                                  print touch events in panel coords
   backlight <0-255>                      set the backlight
   sleep <0|1>                            panel off / on
+  fbinfo [-dev /dev/fb0]                 print framebuffer geometry (no panel needed)
 
 Streaming modes run until Ctrl-C unless -seconds is given.
 `
