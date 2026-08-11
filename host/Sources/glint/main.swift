@@ -154,10 +154,12 @@ do {
             pointsW = ow
             pointsH = oh
         }
+        let devIndex = argValue("--dev", default: 0)
         guard
             let (virtualDisplay, displayID) = createVirtualDisplay(
                 pointsW: pointsW, pointsH: pointsH, hiDPI: hiDPI,
-                name: "glint")
+                name: devIndex == 0 ? "glint" : "glint \(devIndex)",
+                serial: UInt32(1 + devIndex))
         else { fail("CGVirtualDisplay applySettings failed") }
         print(
             "virtual display 'glint' up: \(pointsW)x\(pointsH)"

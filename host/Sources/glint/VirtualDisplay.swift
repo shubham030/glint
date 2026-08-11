@@ -9,8 +9,11 @@ import Foundation
 ///
 /// `hiDPI` doubles the backing pixels for crisper text; the capture path
 /// scales back down to panel resolution either way.
+/// `serial` must differ between concurrent displays: WindowServer rejects a
+/// second descriptor carrying the same vendor/product/serial triple, which is
+/// how driving two panels at once fails (applySettings returns false).
 func createVirtualDisplay(
-    pointsW: Int, pointsH: Int, hiDPI: Bool, name: String
+    pointsW: Int, pointsH: Int, hiDPI: Bool, name: String, serial: UInt32 = 1
 ) -> (display: CGVirtualDisplay, id: CGDirectDisplayID)? {
     let scale = hiDPI ? 2 : 1
 
@@ -26,7 +29,7 @@ func createVirtualDisplay(
     desc.sizeInMillimeters = CGSize(width: 148, height: 98)
     desc.vendorID = UInt32(Glint.vid)
     desc.productID = UInt32(Glint.pid)
-    desc.serialNum = 1
+    desc.serialNum = serial
     desc.terminationHandler = { _, _ in
         FileHandle.standardError.write(
             Data("glint: virtual display terminated by WindowServer\n".utf8))
