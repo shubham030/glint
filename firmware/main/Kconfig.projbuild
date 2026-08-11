@@ -22,4 +22,14 @@ config GLINT_BOARD_S3_AMOLED175
 
 endchoice
 
+config GLINT_ENABLE_WIFI
+    bool "Serve the tile stream over Wi-Fi (SoftAP + TCP)"
+    default y if GLINT_BOARD_S3_AMOLED175
+    default n
+    depends on !IDF_TARGET_ESP32P4
+    help
+        Runs a SoftAP and a TCP listener feeding the same parser as USB. The
+        ESP32-P4 has no radio of its own (its Wi-Fi comes from a separate C6
+        over SDIO), so this is unavailable there.
+
 endmenu

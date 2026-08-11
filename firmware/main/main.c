@@ -10,6 +10,10 @@
 #include "touch.h"
 #include "usb_vendor.h"
 
+#if CONFIG_GLINT_ENABLE_WIFI
+#include "net.h"
+#endif
+
 #if BOARD_HAS_AXP2101
 #include "power.h"
 #endif
@@ -95,6 +99,15 @@ void app_main(void)
     }
 #else
     (void)i2c_bus; /* this board's touch controller has no driver here yet */
+#endif
+
+#if CONFIG_GLINT_ENABLE_WIFI
+    /* Non-fatal: a panel that cannot bring up its radio is still a USB panel. */
+    const esp_err_t net = net_init(tile_queue);
+    if (net != ESP_OK) {
+        ESP_LOGW(TAG, "network init failed (%s) — USB only",
+                 esp_err_to_name(net));
+    }
 #endif
 
     ESP_LOGI(TAG, "glint fw ready: %dx%d", BOARD_LCD_H_RES, BOARD_LCD_V_RES);

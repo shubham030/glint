@@ -10,7 +10,11 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "lcd.h"
-#include "rle.h"
+#include "stream.h"
+
+#if CONFIG_GLINT_ENABLE_WIFI
+#include "net.h"
+#endif
 #include "tinyusb.h"
 #include "tusb.h"
 
@@ -20,11 +24,12 @@ static const char *TAG = "usb_vendor";
 
 static QueueHandle_t s_tile_queue;
 static SemaphoreHandle_t s_rx_sem;
+static glint_stream_stats_t s_stats;
 
-/* Set from USB mount transitions and CMD_RESET; consumed by rx_task, which
- * rewinds its byte-stream position. See the note above tud_mount_cb. */
-static volatile bool s_rx_reset;
-static glint_usb_stats_t s_stats;
+glint_stream_stats_t *glint_stats(void)
+{
+    return &s_stats;
+}
 
 /* ---------------------------------------------------------------- desc -- */
 
@@ -110,18 +115,7 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage,
 
     switch (request->bRequest) {
     case GLINT_CMD_HELLO:
-        s_hello = (glint_hello_t){
-            .magic = GLINT_MAGIC_HELLO,
-            .proto_ver = GLINT_PROTO_VER,
-            .panel_w = BOARD_LCD_H_RES,
-            .panel_h = BOARD_LCD_V_RES,
-            .fmt_mask = (1u << GLINT_FMT_RGB565) |
-                        (1u << GLINT_FMT_RGB565_RLE),
-            .max_tile_len = BOARD_MAX_TILE_LEN,
-            .touch_points = 2,
-            .rsvd = 0,
-            .fw_ver = FW_VERSION,
-        };
+        glint_hello_fill(&s_hello);
         return tud_control_xfer(rhport, request, &s_hello, sizeof(s_hello));
 
     case GLINT_CMD_BACKLIGHT:
@@ -134,7 +128,7 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage,
         while (xQueueReceive(s_tile_queue, &msg, 0) == pdTRUE) {
             free(msg);
         }
-        s_rx_reset = true; /* also rewind the byte-stream parser */
+        glint_stream_reset(); /* also rewind the byte-stream parser */
         return tud_control_status(rhport, request);
     }
 
@@ -159,12 +153,12 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage,
 
 void tud_mount_cb(void)
 {
-    s_rx_reset = true;
+    glint_stream_reset();
 }
 
 void tud_umount_cb(void)
 {
-    s_rx_reset = true;
+    glint_stream_reset();
 }
 
 void tud_vendor_rx_cb(uint8_t itf, uint8_t const *buffer, uint16_t bufsize)
@@ -175,185 +169,33 @@ void tud_vendor_rx_cb(uint8_t itf, uint8_t const *buffer, uint16_t bufsize)
     xSemaphoreGive(s_rx_sem);
 }
 
-typedef enum {
-    RX_HDR,
-    RX_PAYLOAD,
-} rx_state_t;
-
-/* Compressed payloads land here before being expanded into the tile buffer.
- * One RX task, so one scratch buffer. */
-static uint8_t *s_rle_scratch;
-
-static bool header_is_sane(const glint_tile_hdr_t *hdr, uint32_t decoded_len)
+/* Transport adapter: hand the shared parser bytes from the class FIFO. */
+static int usb_read(void *ctx, void *buf, size_t max)
 {
-    if (hdr->w == 0 || hdr->h == 0 || hdr->payload_len == 0) {
-        return false;
+    (void)ctx;
+    if (max == 0) {
+        return 0;
     }
-    /* Bound the geometry before trusting decoded_len: w*h*2 is computed in
-     * uint32 and a crafted 16-bit w/h pair could wrap it to a small value. */
-    if (hdr->x + hdr->w > BOARD_LCD_H_RES ||
-        hdr->y + hdr->h > BOARD_LCD_V_RES) {
-        return false;
+    if (tud_vendor_available() == 0) {
+        xSemaphoreTake(s_rx_sem, pdMS_TO_TICKS(100));
+        return 0;
     }
-    if (decoded_len > BOARD_MAX_TILE_LEN) {
-        return false;
-    }
-    switch (hdr->fmt) {
-    case GLINT_FMT_RGB565:
-        return hdr->payload_len == decoded_len;
-    case GLINT_FMT_RGB565_RLE:
-        /* Compressed data that claims to be bigger than the raw tile is either
-         * corrupt or pointless; either way, refuse it. */
-        return s_rle_scratch != NULL && hdr->payload_len <= decoded_len;
-    default:
-        return false;
-    }
+    return (int)tud_vendor_read(buf, (uint32_t)max);
 }
 
 static void rx_task(void *arg)
 {
     (void)arg;
-
-    rx_state_t state = RX_HDR;
-    uint8_t hdr_buf[sizeof(glint_tile_hdr_t)];
-    size_t hdr_fill = 0;
-    glint_tile_msg_t *cur = NULL; /* NULL in RX_PAYLOAD = sink (alloc failed) */
-    uint8_t *dst_base = NULL;     /* where this payload accumulates */
-    uint32_t want = 0;            /* wire bytes expected */
-    uint32_t decoded_len = 0;
-    uint16_t fmt = GLINT_FMT_RGB565;
-    size_t pay_fill = 0;
-    bool have_seq = false;
-    uint16_t last_seq = 0;
-
-    for (;;) {
-        if (s_rx_reset) {
-            s_rx_reset = false;
-            state = RX_HDR;
-            hdr_fill = 0;
-            pay_fill = 0;
-            dst_base = NULL;
-            have_seq = false;
-            free(cur); /* owned here until enqueued; NULL is fine */
-            cur = NULL;
-            /* Drop stale bytes so the next header starts a clean transfer. */
-            uint8_t flush[64];
-            while (tud_vendor_available() > 0) {
-                if (tud_vendor_read(flush, sizeof(flush)) == 0) {
-                    break;
-                }
-            }
-            continue;
-        }
-
-        if (tud_vendor_available() == 0) {
-            xSemaphoreTake(s_rx_sem, pdMS_TO_TICKS(100));
-            continue;
-        }
-
-        if (state == RX_HDR) {
-            const uint32_t got = tud_vendor_read(hdr_buf + hdr_fill,
-                                                sizeof(hdr_buf) - hdr_fill);
-            hdr_fill += got;
-            if (hdr_fill < sizeof(hdr_buf)) {
-                continue;
-            }
-
-            glint_tile_hdr_t hdr;
-            memcpy(&hdr, hdr_buf, sizeof(hdr));
-
-            /* Both rejection paths must slide by one byte, not discard the
-             * whole window: the magic can occur by chance inside pixel data,
-             * and the window is exactly one header long, so a real header
-             * starting anywhere inside it would be swallowed and the desync
-             * would cascade instead of recovering. */
-            decoded_len = (uint32_t)hdr.w * hdr.h * 2;
-            const bool usable = hdr.magic == GLINT_MAGIC_TILE &&
-                                header_is_sane(&hdr, decoded_len);
-            if (!usable) {
-                if (hdr.magic == GLINT_MAGIC_TILE) {
-                    ESP_LOGW(TAG, "insane tile %ux%u@%u,%u fmt=%u len=%lu",
-                             hdr.w, hdr.h, hdr.x, hdr.y, hdr.fmt,
-                             (unsigned long)hdr.payload_len);
-                }
-                memmove(hdr_buf, hdr_buf + 1, sizeof(hdr_buf) - 1);
-                hdr_fill = sizeof(hdr_buf) - 1;
-                s_stats.resyncs++;
-                continue;
-            }
-            hdr_fill = 0;
-
-            /* A sequence that neither repeats nor advances by one means tiles
-             * went missing in flight; the host watches this counter and
-             * responds with a full refresh. */
-            if (have_seq && hdr.seq != last_seq &&
-                hdr.seq != (uint16_t)(last_seq + 1)) {
-                s_stats.seq_gaps++;
-            }
-            last_seq = hdr.seq;
-            have_seq = true;
-
-            fmt = hdr.fmt;
-            cur = heap_caps_malloc(sizeof(glint_tile_msg_t) + decoded_len,
-                                   MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-            if (cur == NULL) {
-                ESP_LOGE(TAG, "tile alloc %lu failed",
-                         (unsigned long)decoded_len);
-                s_stats.tiles_dropped++;
-                dst_base = NULL; /* sink the payload */
-            } else {
-                cur->hdr = hdr;
-                /* The LCD task only ever sees raw RGB565. */
-                cur->hdr.fmt = GLINT_FMT_RGB565;
-                cur->hdr.payload_len = decoded_len;
-                dst_base = (fmt == GLINT_FMT_RGB565_RLE) ? s_rle_scratch
-                                                         : cur->payload;
-            }
-            want = hdr.payload_len;
-            pay_fill = 0;
-            state = RX_PAYLOAD;
-        } else {
-            uint8_t sink[512];
-            uint8_t *dst = (dst_base != NULL) ? dst_base + pay_fill : sink;
-            const size_t room = (dst_base != NULL)
-                                    ? (want - pay_fill)
-                                    : MIN(sizeof(sink),
-                                          (size_t)(want - pay_fill));
-            const uint32_t got = tud_vendor_read(dst, room);
-            pay_fill += got;
-
-            if (pay_fill < want) {
-                continue;
-            }
-
-            if (cur != NULL) {
-                bool ok = true;
-                if (fmt == GLINT_FMT_RGB565_RLE) {
-                    const int px = rle_decode(s_rle_scratch, want,
-                                              (uint16_t *)cur->payload,
-                                              decoded_len / 2);
-                    ok = px == (int)(decoded_len / 2);
-                    if (!ok) {
-                        ESP_LOGW(TAG, "bad RLE stream (%lu bytes)",
-                                 (unsigned long)want);
-                        s_stats.resyncs++;
-                    }
-                }
-                if (!ok || xQueueSend(s_tile_queue, &cur, 0) != pdTRUE) {
-                    /* Counted as a drop either way: this region of the panel is
-                     * now stale, and tiles_dropped is the counter the host
-                     * watches to trigger a full refresh. */
-                    s_stats.tiles_dropped++;
-                    free(cur);
-                } else {
-                    s_stats.tiles_rx++;
-                }
-                cur = NULL;
-            }
-            dst_base = NULL;
-            state = RX_HDR;
-        }
-    }
+    const glint_stream_io_t io = {
+        .read = usb_read,
+        .write = NULL, /* USB answers control out of band */
+        .ctx = NULL,
+        .name = "usb",
+    };
+    /* Never returns: usb_read reports 0 rather than an error when idle, so the
+     * parser waits for the host instead of tearing down. */
+    glint_stream_run(&io, s_tile_queue, &s_stats);
+    vTaskDelete(NULL);
 }
 
 /* --------------------------------------------------------------- stats -- */
@@ -370,11 +212,11 @@ static void rx_task(void *arg)
 static void stats_task(void *arg)
 {
     (void)arg;
-    glint_usb_stats_t last = {0};
+    glint_stream_stats_t last = {0};
 
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(1000));
-        const glint_usb_stats_t now = s_stats; /* one read, used throughout */
+        const glint_stream_stats_t now = s_stats; /* one read, used throughout */
         const uint32_t dropped = now.tiles_dropped + now.seq_gaps;
         if (dropped == last.tiles_dropped + last.seq_gaps &&
             now.resyncs == last.resyncs) {
@@ -389,8 +231,14 @@ static void stats_task(void *arg)
             .y = (uint16_t)(now.resyncs > 0xFFFF ? 0xFFFF : now.resyncs),
             .rsvd = 0,
         };
-        if (usb_vendor_send_event(&evt)) {
-            last = now; /* only now is it true that the host was told */
+        /* Either transport counts: the host may be on USB or on the
+         * network, and a report that reached neither must not be recorded. */
+        bool told = usb_vendor_send_event(&evt);
+#if CONFIG_GLINT_ENABLE_WIFI
+        told = net_send_event(&evt) || told;
+#endif
+        if (told) {
+            last = now;
         }
     }
 }
@@ -419,14 +267,6 @@ esp_err_t usb_vendor_init(QueueHandle_t tile_queue)
     };
     ESP_RETURN_ON_ERROR(tinyusb_driver_install(&tusb_cfg), TAG, "tusb install");
 
-    s_rle_scratch = heap_caps_malloc(BOARD_MAX_TILE_LEN,
-                                     MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (s_rle_scratch == NULL) {
-        /* Not fatal: header_is_sane() then rejects fmt 1 and the host, which
-         * reads fmt_mask, keeps sending raw. */
-        ESP_LOGW(TAG, "no RLE scratch buffer — compressed tiles disabled");
-    }
-
     const BaseType_t ok = xTaskCreatePinnedToCore(rx_task, "usb_rx", 4096, NULL,
                                                   10, NULL, 1);
     ESP_RETURN_ON_FALSE(ok == pdPASS, ESP_ERR_NO_MEM, TAG, "rx task");
@@ -439,11 +279,6 @@ esp_err_t usb_vendor_init(QueueHandle_t tile_queue)
     ESP_LOGI(TAG, "vendor interface up (vid=%04x pid=%04x)", GLINT_USB_VID,
              GLINT_USB_PID);
     return ESP_OK;
-}
-
-void usb_vendor_get_stats(glint_usb_stats_t *out)
-{
-    *out = s_stats;
 }
 
 bool usb_vendor_send_event(const glint_evt_t *evt)

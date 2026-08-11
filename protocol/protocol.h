@@ -19,6 +19,7 @@
 #define GLINT_MAGIC_HELLO 0x4C483450u /* 'P4HL' */
 #define GLINT_MAGIC_TILE  0x44543450u /* 'P4TD' */
 #define GLINT_MAGIC_EVT   0x56453450u /* 'P4EV' */
+#define GLINT_MAGIC_REQ   0x51523450u /* 'P4RQ' */
 
 #define GLINT_PROTO_VER 1
 
@@ -77,8 +78,20 @@ typedef struct {
     uint16_t rsvd;
 } glint_evt_t;
 
+/* In-band control, for transports with no control pipe (TCP over Wi-Fi).
+ * `cmd` reuses the GLINT_CMD_* codes; `value` carries what wValue would.
+ * A HELLO request is answered with a glint_hello_t on the same stream, so a
+ * socket link can complete the same handshake as USB. */
+typedef struct {
+    uint32_t magic;        /* GLINT_MAGIC_REQ */
+    uint8_t  cmd;
+    uint8_t  rsvd;
+    uint16_t value;
+} glint_req_t;
+
 #pragma pack(pop)
 
 _Static_assert(sizeof(glint_hello_t) == 24, "hello must be 24 bytes");
 _Static_assert(sizeof(glint_tile_hdr_t) == 24, "tile header must be 24 bytes");
 _Static_assert(sizeof(glint_evt_t) == 12, "event must be 12 bytes");
+_Static_assert(sizeof(glint_req_t) == 8, "request must be 8 bytes");
