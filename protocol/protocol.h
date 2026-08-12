@@ -44,6 +44,7 @@
 #define GLINT_CMD_BACKLIGHT 0x02 /* OUT, wValue = 0..255 */
 #define GLINT_CMD_RESET     0x03 /* OUT, drop state, force full refresh */
 #define GLINT_CMD_SLEEP     0x04 /* OUT, wValue 1=panel off 0=panel on */
+#define GLINT_CMD_BOOTLOADER 0x05 /* OUT, reboot into the ROM download loader */
 
 #pragma pack(push, 1)
 

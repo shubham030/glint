@@ -6,8 +6,11 @@
 #include "board.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_system.h"
 #include "lcd.h"
 #include "rle.h"
+
+
 
 static const char *TAG = "stream";
 
@@ -22,6 +25,20 @@ typedef struct {
 } parser_state_t;
 
 static volatile bool s_reset_requested;
+
+/* Asks the next boot to leave USB as the ROM's serial/JTAG device instead of
+ * claiming it for TinyUSB, so esptool can connect and flash normally.
+ *
+ * Deliberately NOT the RTC force-download strap: that bit survives every reset
+ * and only clears on true power loss, so setting it strands the board in the
+ * loader until it is physically unplugged — worse than the button it replaces.
+ * An RTC_NOINIT flag survives the soft restart we are about to do and is
+ * cleared by the boot that honours it, making it genuinely one-shot. */
+static void glint_reboot_to_loader(void)
+{
+    glint_request_serial_boot();
+    esp_restart();
+}
 
 void glint_stream_reset(void)
 {
@@ -95,6 +112,14 @@ bool glint_stream_serve_request(const glint_stream_io_t *io,
     case GLINT_CMD_SLEEP:
         lcd_sleep(req->value != 0);
         return true;
+    case GLINT_CMD_BOOTLOADER:
+        /* This board has no UART bridge, so without this a reflash means
+         * physically holding BOOT while tapping RESET. Forcing the download
+         * strap in RTC and restarting gets there from software. */
+        ESP_LOGW(TAG, "rebooting into the download loader on request");
+        vTaskDelay(pdMS_TO_TICKS(50)); /* let the reply/log drain first */
+        glint_reboot_to_loader();
+        return true;
     default:
         ESP_LOGW(TAG, "unknown in-band request 0x%02x", req->cmd);
         return false;
@@ -147,29 +172,45 @@ void glint_stream_run(const glint_stream_io_t *io, QueueHandle_t tile_queue,
                 break;
             }
             hdr_fill += (size_t)got;
-            if (hdr_fill < sizeof(hdr_buf)) {
+
+            /* Decide as soon as the magic is in: an in-band request is only 8
+             * bytes, so waiting for a full 24-byte tile header first would
+             * deadlock against a host that sends a request and then waits for
+             * its reply. */
+            if (hdr_fill < sizeof(uint32_t)) {
                 continue;
             }
-
-            /* An in-band request is shorter than a tile header, so it is
-             * recognised from the front of the window and consumed. */
             uint32_t magic;
             memcpy(&magic, hdr_buf, sizeof(magic));
+
             if (magic == GLINT_MAGIC_REQ) {
+                if (hdr_fill < sizeof(glint_req_t)) {
+                    continue; /* rest of the request still in flight */
+                }
                 glint_req_t req;
                 memcpy(&req, hdr_buf, sizeof(req));
                 glint_stream_serve_request(io, &req, tile_queue);
-                memmove(hdr_buf, hdr_buf + sizeof(req),
-                        sizeof(hdr_buf) - sizeof(req));
-                hdr_fill = sizeof(hdr_buf) - sizeof(req);
+                const size_t left = hdr_fill - sizeof(req);
+                memmove(hdr_buf, hdr_buf + sizeof(req), left);
+                hdr_fill = left;
                 continue;
+            }
+
+            if (magic != GLINT_MAGIC_TILE) {
+                /* Slide one byte: a false magic can appear inside pixel data. */
+                memmove(hdr_buf, hdr_buf + 1, hdr_fill - 1);
+                hdr_fill -= 1;
+                stats->resyncs++;
+                continue;
+            }
+            if (hdr_fill < sizeof(hdr_buf)) {
+                continue; /* a tile needs the whole header before validation */
             }
 
             glint_tile_hdr_t hdr;
             memcpy(&hdr, hdr_buf, sizeof(hdr));
             decoded_len = (uint32_t)hdr.w * hdr.h * 2;
             const bool usable =
-                magic == GLINT_MAGIC_TILE &&
                 header_is_sane(&hdr, decoded_len, st.rle_scratch != NULL);
             if (!usable) {
                 /* Slide one byte: the magic can occur by chance inside pixel

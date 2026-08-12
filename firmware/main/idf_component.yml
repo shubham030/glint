@@ -7,3 +7,16 @@ dependencies:
   espressif/esp_lcd_touch: "^1.1.2"
   # CO5300 AMOLED (QSPI) — the S3-Touch-AMOLED-1.75 board profile
   espressif/esp_lcd_co5300: "^2.1.0"
+  # so the host can find the panel without being told a DHCP address
+  espressif/mdns: "^1.2"
+  # P4 has no radio: Wi-Fi comes from the onboard ESP32-C6 over SDIO.
+  # esp_wifi_remote presents the standard esp_wifi API, so net.c is unchanged.
+  # Versions are the pair the carplay/mapcast firmware proved on this board.
+  espressif/esp_wifi_remote:
+    version: "==0.14.*"
+    rules:
+      - if: "target == esp32p4"
+  espressif/esp_hosted:
+    version: "==1.4.*"
+    rules:
+      - if: "target == esp32p4"

@@ -18,6 +18,9 @@ public enum Glint {
         case backlight = 0x02
         case reset = 0x03
         case sleep = 0x04
+        /// Reboots the device into its ROM download loader, so a board with no
+        /// UART bridge can be reflashed without holding BOOT.
+        case bootloader = 0x05
     }
 
     /// Payload encodings. `fmt_mask` in the handshake advertises support as

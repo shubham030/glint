@@ -47,6 +47,10 @@ void glint_stream_run(const glint_stream_io_t *io, QueueHandle_t tile_queue,
  * connect/disconnect: a stream position cannot survive the peer going away. */
 void glint_stream_reset(void);
 
+/* Asks the next boot to keep USB as the ROM serial/JTAG device (see main.c), so
+ * a board with no UART bridge can be reflashed without the BOOT button. */
+void glint_request_serial_boot(void);
+
 /* Fills in the handshake this build advertises. Shared so USB control transfers
  * and in-band socket requests cannot describe the device differently. */
 void glint_hello_fill(glint_hello_t *out);

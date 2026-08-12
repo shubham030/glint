@@ -26,10 +26,27 @@ config GLINT_ENABLE_WIFI
     bool "Serve the tile stream over Wi-Fi (SoftAP + TCP)"
     default y if GLINT_BOARD_S3_AMOLED175
     default n
-    depends on !IDF_TARGET_ESP32P4
     help
-        Runs a SoftAP and a TCP listener feeding the same parser as USB. The
-        ESP32-P4 has no radio of its own (its Wi-Fi comes from a separate C6
-        over SDIO), so this is unavailable there.
+        Runs a SoftAP or joins a network, and serves a TCP listener feeding the
+        same parser as USB. On the ESP32-P4 the radio is the onboard ESP32-C6
+        reached over SDIO (esp-hosted); the C6 must already carry esp-hosted
+        slave firmware.
+
+config GLINT_WIFI_SSID
+    string "Wi-Fi SSID to join (blank = run a SoftAP instead)"
+    default ""
+    depends on GLINT_ENABLE_WIFI
+    help
+        Joining an existing network is preferable when the host is on the same
+        LAN: the host keeps its own connectivity and the panel is reachable at
+        glint.local. Leave blank to fall back to a self-hosted SoftAP.
+
+        Set this in the generated sdkconfig (which is gitignored), never in a
+        committed defaults file — it is a credential.
+
+config GLINT_WIFI_PASSWORD
+    string "Wi-Fi password"
+    default ""
+    depends on GLINT_ENABLE_WIFI
 
 endmenu

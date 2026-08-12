@@ -12,6 +12,7 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "lwip/sockets.h"
+#include "mdns.h"
 #include "nvs_flash.h"
 #include "stream.h"
 #include "usb_vendor.h"
@@ -88,9 +89,9 @@ bool net_send_event(const glint_evt_t *evt)
     return net_write((void *)(intptr_t)fd, evt, sizeof(*evt));
 }
 
-/* ----------------------------------------------------------------- ap -- */
+/* ---------------------------------------------------------------- wifi -- */
 
-static esp_err_t softap_start(void)
+static esp_err_t common_init(void)
 {
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES ||
@@ -102,6 +103,70 @@ static esp_err_t softap_start(void)
 
     ESP_RETURN_ON_ERROR(esp_netif_init(), TAG, "netif");
     ESP_RETURN_ON_ERROR(esp_event_loop_create_default(), TAG, "event loop");
+    return ESP_OK;
+}
+
+/* Advertised so the host never needs to be told a DHCP address: the panel is
+ * reachable as glint.local. */
+static void advertise(void)
+{
+    if (mdns_init() != ESP_OK) {
+        ESP_LOGW(TAG, "mDNS unavailable — connect by IP");
+        return;
+    }
+    mdns_hostname_set("glint");
+    mdns_instance_name_set("glint panel");
+    mdns_service_add(NULL, "_glint", "_tcp", GLINT_NET_PORT, NULL, 0);
+    ESP_LOGI(TAG, "advertising glint.local:%d", GLINT_NET_PORT);
+}
+
+static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id,
+                          void *data)
+{
+    (void)arg;
+    if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
+        esp_wifi_connect();
+    } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
+        ESP_LOGW(TAG, "wifi dropped — reconnecting");
+        esp_wifi_connect();
+    } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
+        const ip_event_got_ip_t *e = data;
+        ESP_LOGI(TAG, "joined %s — panel at " IPSTR ":%d (glint.local)",
+                 CONFIG_GLINT_WIFI_SSID, IP2STR(&e->ip_info.ip),
+                 GLINT_NET_PORT);
+        advertise();
+    }
+}
+
+static esp_err_t sta_start(void)
+{
+    esp_netif_create_default_wifi_sta();
+    const wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    ESP_RETURN_ON_ERROR(esp_wifi_init(&cfg), TAG, "wifi init");
+    ESP_RETURN_ON_ERROR(
+        esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID,
+                                            on_wifi_event, NULL, NULL),
+        TAG, "wifi events");
+    ESP_RETURN_ON_ERROR(
+        esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP,
+                                            on_wifi_event, NULL, NULL),
+        TAG, "ip events");
+
+    wifi_config_t sta = {0};
+    strlcpy((char *)sta.sta.ssid, CONFIG_GLINT_WIFI_SSID, sizeof(sta.sta.ssid));
+    strlcpy((char *)sta.sta.password, CONFIG_GLINT_WIFI_PASSWORD,
+            sizeof(sta.sta.password));
+    ESP_RETURN_ON_ERROR(esp_wifi_set_mode(WIFI_MODE_STA), TAG, "mode");
+    ESP_RETURN_ON_ERROR(esp_wifi_set_config(WIFI_IF_STA, &sta), TAG, "sta cfg");
+    ESP_RETURN_ON_ERROR(esp_wifi_start(), TAG, "wifi start");
+    /* Frames are big and latency matters more than battery here. */
+    esp_wifi_set_ps(WIFI_PS_NONE);
+    ESP_LOGI(TAG, "joining \"%s\"…", CONFIG_GLINT_WIFI_SSID);
+    return ESP_OK;
+}
+
+static esp_err_t softap_start(void)
+{
     esp_netif_create_default_wifi_ap();
 
     const wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
@@ -127,7 +192,20 @@ static esp_err_t softap_start(void)
 
     ESP_LOGI(TAG, "SoftAP \"%s\" up (pass %s) — panel at 192.168.4.1:%d",
              (char *)ap.ap.ssid, AP_PASSWORD, GLINT_NET_PORT);
+    advertise();
     return ESP_OK;
+}
+
+static esp_err_t wifi_start(void)
+{
+    ESP_RETURN_ON_ERROR(common_init(), TAG, "common");
+    /* Runtime rather than compile-time: Kconfig cannot express "this string is
+     * non-empty", and both paths are small enough to always build. */
+    if (strlen(CONFIG_GLINT_WIFI_SSID) > 0) {
+        return sta_start();
+    }
+    ESP_LOGI(TAG, "no SSID configured — self-hosting an AP");
+    return softap_start();
 }
 
 /* --------------------------------------------------------------- serve -- */
@@ -210,7 +288,7 @@ esp_err_t net_init(QueueHandle_t tile_queue)
     s_tx_lock = xSemaphoreCreateMutex();
     ESP_RETURN_ON_FALSE(s_tx_lock != NULL, ESP_ERR_NO_MEM, TAG, "tx lock");
 
-    ESP_RETURN_ON_ERROR(softap_start(), TAG, "softap");
+    ESP_RETURN_ON_ERROR(wifi_start(), TAG, "wifi");
 
     ESP_RETURN_ON_FALSE(
         xTaskCreatePinnedToCore(accept_task, "glint_net", 5120, NULL, 8, NULL, 0)

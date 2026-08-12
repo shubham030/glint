@@ -16,6 +16,7 @@ import Foundation
 //   glint touch [--calibrate]                        M5 touch, raw or guided
 //   glint stats                                      device counters
 //   glint doctor                                     check device + permissions
+//   glint bootloader                                 reboot into the ROM loader
 //   glint backlight <0-255>
 //   glint sleep <0|1>
 //
@@ -114,6 +115,11 @@ do {
             let v = UInt16(CommandLine.arguments[2]), v <= 255
         else { fail("usage: glint backlight <0-255>") }
         try dev.control(.backlight, value: v)
+
+    case "bootloader":
+        /* Removes the BOOT-button dance on boards with no UART bridge. */
+        try dev.control(.bootloader, value: 0)
+        print("device rebooting into its download loader — flash now")
 
     case "sleep":
         guard CommandLine.arguments.count > 2,

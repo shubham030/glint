@@ -3,3 +3,13 @@ CONFIG_GLINT_BOARD_S3_AMOLED175=y
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
 CONFIG_SPIRAM_MODE_OCT=y
 CONFIG_SPIRAM_SPEED_80M=y
+
+# TCP over Wi-Fi is bandwidth-delay-product limited here: measured RTT averages
+# ~39 ms with 300 ms spikes, and lwIP's default 5.7 KB window caps throughput at
+# window/RTT regardless of radio speed. Bigger windows + scaling let a frame
+# stay in flight.
+CONFIG_LWIP_TCP_WND_DEFAULT=65534
+CONFIG_LWIP_TCP_SND_BUF_DEFAULT=65534
+CONFIG_LWIP_TCP_RECVMBOX_SIZE=64
+CONFIG_LWIP_WND_SCALE=y
+CONFIG_LWIP_TCP_RCV_SCALE=2

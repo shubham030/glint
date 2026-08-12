@@ -2,6 +2,8 @@
 
 #include "board.h"
 #include "driver/i2c_master.h"
+#include "driver/usb_serial_jtag.h"
+#include "esp_attr.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -19,6 +21,27 @@
 #endif
 
 static const char *TAG = "glint";
+
+/* Survives a soft restart, random after power-on — exactly the lifetime a
+ * one-shot "boot into something flashable" request needs. */
+#define SERIAL_BOOT_MAGIC 0x9C1B7A05u
+static RTC_NOINIT_ATTR uint32_t s_serial_boot_request;
+
+void glint_request_serial_boot(void)
+{
+    s_serial_boot_request = SERIAL_BOOT_MAGIC;
+}
+
+/* True once per request: the flag is consumed here so the boot after this one
+ * returns to being a display. */
+static bool take_serial_boot_request(void)
+{
+    if (s_serial_boot_request != SERIAL_BOOT_MAGIC) {
+        return false;
+    }
+    s_serial_boot_request = 0;
+    return true;
+}
 
 #define TILE_QUEUE_LEN 64
 
@@ -79,6 +102,25 @@ void app_main(void)
     assert(tile_queue != NULL);
 
     xTaskCreatePinnedToCore(lcd_task, "lcd", 4096, tile_queue, 9, NULL, 0);
+
+    if (take_serial_boot_request()) {
+        /* Hand USB to the serial/JTAG controller so esptool can connect with
+         * its normal reset sequence and no button is needed.
+         *
+         * Installing the driver is what actually moves the PHY: esp_restart()
+         * is a soft reset and leaves the PHY muxed to the OTG controller from
+         * the previous boot, so merely skipping TinyUSB makes the device vanish
+         * from the bus instead of reappearing as a serial port. */
+        usb_serial_jtag_driver_config_t usj = {
+            .tx_buffer_size = 256,
+            .rx_buffer_size = 256,
+        };
+        const esp_err_t err = usb_serial_jtag_driver_install(&usj);
+        ESP_LOGW(TAG, "serial-boot: USB handed to serial/JTAG (%s)",
+                 esp_err_to_name(err));
+        ESP_LOGW(TAG, "flash now; the next boot is a display again");
+        return;
+    }
 
 #if CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
     /* USB-Serial-JTAG and the OTG controller share the USB PHY, so a build that

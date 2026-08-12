@@ -136,6 +136,15 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage,
         lcd_sleep(request->wValue != 0);
         return tud_control_status(rhport, request);
 
+    case GLINT_CMD_BOOTLOADER: {
+        /* Ack first: the host should not see the transfer fail because we
+         * rebooted mid-reply. */
+        const glint_req_t req = {.cmd = GLINT_CMD_BOOTLOADER};
+        tud_control_status(rhport, request);
+        glint_stream_serve_request(NULL, &req, s_tile_queue);
+        return true;
+    }
+
     default:
         return false; /* stall unknown requests */
     }
