@@ -14,6 +14,8 @@ host/.swiftpm/
 nohup.out
 *.log
 firmware/build_s3/
+firmware/build_amoled/
+firmware/build_*/
 firmware/sdkconfig.s3
 firmware/sdkconfig.s3.old
 firmware/sdkconfig.amoled

@@ -4,7 +4,7 @@ GLINT := ./host/.build/release/glint
 
 .PHONY: all fw fw-s3 host test test-host test-fw test-go flash monitor \
         display display-portrait display-wifi panels mirror bars hello stats \
-        calibrate pi install-agent uninstall-agent clean
+        calibrate pi install-agent uninstall-agent clean fw-amoled flash-amoled
 
 all: fw host
 
@@ -16,6 +16,16 @@ fw:
 fw-s3:
 	cd firmware && $(IDF_EXPORT) && \
 	  idf.py -B build_s3 -D SDKCONFIG=sdkconfig.s3 set-target esp32s3 build
+
+# The 1.75" QSPI AMOLED board — a different panel driver and geometry, so it
+# gets its own config and build directory rather than reconfiguring in place.
+fw-amoled:
+	cd firmware && $(IDF_EXPORT) && \
+	  idf.py -B build_amoled -D SDKCONFIG=sdkconfig.amoled build
+
+flash-amoled:
+	cd firmware && $(IDF_EXPORT) && \
+	  idf.py -B build_amoled -D SDKCONFIG=sdkconfig.amoled -p $(PORT) -b 460800 flash
 
 host:
 	cd host && swift build -c release
