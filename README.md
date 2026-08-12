@@ -16,49 +16,49 @@ expectation is the honest one.
 
 | | | |
 |---|---|---|
-| M0 | Transport + framing | ✅ 14.7 fps, 4.5 MB/s over USB HS |
+| M0 | Transport + framing | ✅ |
 | M1 | Static image → panel | ✅ fit / fill / rotate, any ImageIO format |
-| M2 | Mirror the main display | ✅ 11.3 fps |
+| M2 | Mirror the main display | ✅ |
 | M3 | Real virtual display (`CGVirtualDisplay`) | ✅ extended desktop, 960×640 |
 | M4 | Dirty-rect tiling | ✅ **300 KB → 18 KB per frame** (16.6×) |
-| M5 | Touch → cursor | ⚠️ written, **not yet verified on hardware** |
-| — | RGB565 RLE (fmt 1) | ⚠️ both ends written + tested, **not on hardware** |
+| — | RGB565 RLE (fmt 1) | ✅ on by default; **7.9 MB/s, 25.7 fps** on the P4 |
+| — | Wi-Fi transport (TCP, no data cable) | ✅ P4 1.93 MB/s, 6.3 fps |
+| — | Second and third board (S3 SPI, S3 AMOLED) | ✅ one image, `menuconfig` picks the board |
+| M5 | Touch → cursor | ⚠️ written; **calibration never run on hardware** |
 | — | Linux / Pi host | ⚠️ pure Go, cross-compiles for Pi Zero W, **not on hardware** |
 | M6 | DSI panel swap | future ([DESIGN.md](DESIGN.md) §8) |
 
-M0–M4 have been run against the real panel. Everything marked ⚠️ compiles and
-passes unit tests but has not touched hardware — the honest distinction, kept
-here deliberately.
+Everything marked ⚠️ compiles and passes unit tests but has not touched
+hardware — the honest distinction, kept here deliberately.
 
-## When the panel comes back
+## What is left
 
-The board is currently running an older image (no RLE, no touch), and the RLE,
-touch and Linux paths have never run on hardware. In order:
-
-```sh
-make flash                    # both Type-C cables in: UART flashes, OTG carries the display
-glint doctor                  # panel + permissions + private API in one go
-glint display                 # should look exactly as before — RLE is the only new thing on the wire
-glint touch --calibrate       # tap 3 corners; it prints the --tp-* flags for this board
-glint display --touch --tp-…  # touch drives the cursor
-glint stats                   # watch for drops while dragging a window at 30fps
-```
-
-If tiles look smeared or misplaced, the suspect is the RLE path: run
-`glint display --full` (whole frames) to confirm, and if that is clean the
-encoder and decoder disagree somewhere the shared fixture does not cover.
+`glint touch --calibrate` has never been run: it wants three taps on a real
+panel and prints the `--tp-*` flags for that board. The Linux/Pi host has never
+been run against hardware either (its USB path is raw usbfs ioctls).
 
 ## Quick start (macOS)
 
 ```sh
 make            # build firmware + host
 make flash      # flash the panel (UART Type-C port)
-make display    # extended desktop on the panel
+make display    # extended desktop on the panel, over USB
 ```
 
-`glint display` waits for the panel, so running it before the cable is plugged
-in is fine; it exits when the panel is unplugged so a supervisor can restart it.
+`make display` waits for the panel, so running it before the cable is plugged in
+is fine; it exits when the panel is unplugged so a supervisor can restart it.
 `make install-agent` runs it at login.
+
+No data cable — the panel needs power only:
+
+```sh
+make panels                              # what is reachable, on USB and on the network
+make display-wifi PANEL=glint-335b.local # each board advertises its own name
+```
+
+Two panels attached at once? `glint --list`, then `glint display --dev N`. On
+screen they identify themselves by board id (`glint 335b`), so macOS keeps each
+one's arrangement and resolution separately.
 
 Other modes:
 
@@ -145,14 +145,16 @@ bypassing the USB hub to attach the board directly.
 
 ## Measured numbers
 
-On the ESP32-P4 board (USB high speed, ST7796 SPI at 80 MHz):
+What the encoding does to a frame, on the P4 (USB high speed, ST7796 SPI at
+80 MHz). The rates for the link itself are in the table above.
 
 | | |
 |---|---|
-| Full-frame push | 300 KB/frame, ~14.7 fps sustained |
-| Dirty-tile push (typical desktop) | 18 KB/frame, 2.4 tiles/frame |
+| Full frame, uncompressed | 300 KB |
+| Dirty-tile push (typical desktop) | 18 KB, 2.4 tiles/frame |
 | Idle desktop | most frames send nothing at all |
 | Flat 64×64 tile, RLE | 8192 bytes → 4 |
+| Same frames over Wi-Fi | 1.93 MB/s, 6.3 fps — a 64 KB TCP window, up from 0.24 MB/s with lwIP's default 5.7 KB |
 
 ## Known limits
 

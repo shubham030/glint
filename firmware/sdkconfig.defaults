@@ -9,3 +9,12 @@ CONFIG_ESP_CONSOLE_UART_DEFAULT=y
 
 # TinyUSB vendor-specific interface (bulk OUT tiles / bulk IN events)
 CONFIG_TINYUSB_VENDOR_COUNT=1
+
+# TCP over Wi-Fi is bandwidth-delay-product limited: measured RTT averages
+# 28-39 ms on this LAN, and lwIP's default 5.7 KB window caps throughput at
+# window/RTT (~0.2 MB/s) no matter how fast the radio is.
+CONFIG_LWIP_TCP_WND_DEFAULT=65534
+CONFIG_LWIP_TCP_SND_BUF_DEFAULT=65534
+CONFIG_LWIP_TCP_RECVMBOX_SIZE=64
+CONFIG_LWIP_WND_SCALE=y
+CONFIG_LWIP_TCP_RCV_SCALE=2

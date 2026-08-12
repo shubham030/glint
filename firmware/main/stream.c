@@ -6,6 +6,7 @@
 #include "board.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_mac.h"
 #include "esp_system.h"
 #include "lcd.h"
 #include "rle.h"
@@ -70,6 +71,17 @@ static bool header_is_sane(const glint_tile_hdr_t *hdr, uint32_t decoded_len,
     }
 }
 
+/* Low 16 bits of the factory MAC: stable across reboots and reflashes, and
+ * different on every board. */
+static uint16_t glint_device_id(void)
+{
+    uint8_t mac[6] = {0};
+    if (esp_read_mac(mac, ESP_MAC_EFUSE_FACTORY) != ESP_OK) {
+        return 0;
+    }
+    return (uint16_t)((mac[4] << 8) | mac[5]);
+}
+
 void glint_hello_fill(glint_hello_t *out)
 {
     *out = (glint_hello_t){
@@ -80,7 +92,7 @@ void glint_hello_fill(glint_hello_t *out)
         .fmt_mask = (1u << GLINT_FMT_RGB565) | (1u << GLINT_FMT_RGB565_RLE),
         .max_tile_len = BOARD_MAX_TILE_LEN,
         .touch_points = 2,
-        .rsvd = 0,
+        .dev_id = glint_device_id(),
         .fw_ver = FW_VERSION,
     };
 }

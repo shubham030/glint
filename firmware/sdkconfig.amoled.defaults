@@ -8,8 +8,3 @@ CONFIG_SPIRAM_SPEED_80M=y
 # ~39 ms with 300 ms spikes, and lwIP's default 5.7 KB window caps throughput at
 # window/RTT regardless of radio speed. Bigger windows + scaling let a frame
 # stay in flight.
-CONFIG_LWIP_TCP_WND_DEFAULT=65534
-CONFIG_LWIP_TCP_SND_BUF_DEFAULT=65534
-CONFIG_LWIP_TCP_RECVMBOX_SIZE=64
-CONFIG_LWIP_WND_SCALE=y
-CONFIG_LWIP_TCP_RCV_SCALE=2

@@ -56,7 +56,11 @@ typedef struct {
     uint16_t fmt_mask;
     uint32_t max_tile_len; /* largest single payload the device accepts */
     uint16_t touch_points;
-    uint16_t rsvd;
+    /* Stable per-board id (low 16 bits of the MAC). Was reserved, so firmware
+     * predating it reports 0 and hosts must tolerate that. Hosts need it to
+     * tell two identical panels apart: the USB serial string is fixed and
+     * bus/address changes on every replug. */
+    uint16_t dev_id;
     uint32_t fw_ver;
 } glint_hello_t;
 

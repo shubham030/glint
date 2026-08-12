@@ -103,7 +103,8 @@ do {
     let fw = String(format: "%08x", hello.fwVer)
     print(
         "panel \(hello.panelW)x\(hello.panelH), fmt_mask=\(hello.fmtMask), "
-            + "max_tile=\(hello.maxTileLen), touch=\(hello.touchPoints)pt, fw=\(fw), "
+            + "max_tile=\(hello.maxTileLen), touch=\(hello.touchPoints)pt, "
+            + "id=\(String(format: "%04x", hello.devId)), fw=\(fw), "
             + "link=\(dev.describeLink)")
 
     switch mode {
@@ -169,15 +170,24 @@ do {
             pointsW = ow
             pointsH = oh
         }
-        let devIndex = argValue("--dev", default: 0)
+        /* Identify the virtual display by the panel's own id, not by transport
+         * position. WindowServer keys on vendor/product/serial: two panels
+         * sharing a triple means the second display is created but never
+         * becomes visible to ScreenCaptureKit, and a stale registration from an
+         * earlier session blocks a new one the same way. */
+        let panelID =
+            hello.devId != 0
+            ? UInt32(hello.devId) : UInt32(1 + argValue("--dev", default: 0))
+        let panelName =
+            hello.devId != 0
+            ? String(format: "glint %04x", hello.devId) : "glint"
         guard
             let (virtualDisplay, displayID) = createVirtualDisplay(
                 pointsW: pointsW, pointsH: pointsH, hiDPI: hiDPI,
-                name: devIndex == 0 ? "glint" : "glint \(devIndex)",
-                serial: UInt32(1 + devIndex))
+                name: panelName, serial: panelID)
         else { fail("CGVirtualDisplay applySettings failed") }
         print(
-            "virtual display 'glint' up: \(pointsW)x\(pointsH)"
+            "virtual display '\(panelName)' up: \(pointsW)x\(pointsH)"
                 + (hiDPI ? " @2x" : "") + " (id \(displayID))")
         /* NOTE (macOS 26.5): WindowServer refuses desktops under ~800 px
          * wide — sub-800 modes are halved and CGDisplaySetDisplayMode to the

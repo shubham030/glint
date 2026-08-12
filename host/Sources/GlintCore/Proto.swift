@@ -47,6 +47,8 @@ public struct Hello {
     public let fmtMask: UInt16
     public let maxTileLen: Int
     public let touchPoints: Int
+    /// Stable per-board id; 0 from firmware that predates the field.
+    public let devId: UInt16
     public let fwVer: UInt32
 
     public init?(_ data: Data) {
@@ -65,19 +67,21 @@ public struct Hello {
         fmtMask = u16(10)
         maxTileLen = Int(u32(12))
         touchPoints = Int(u16(16))
+        devId = u16(18)
         fwVer = u32(20)
     }
 
     /// Test seam: build a handshake without a device.
     public init(
         panelW: Int, panelH: Int, fmtMask: UInt16, maxTileLen: Int,
-        touchPoints: Int = 2, fwVer: UInt32 = 0
+        touchPoints: Int = 2, devId: UInt16 = 0, fwVer: UInt32 = 0
     ) {
         self.panelW = panelW
         self.panelH = panelH
         self.fmtMask = fmtMask
         self.maxTileLen = maxTileLen
         self.touchPoints = touchPoints
+        self.devId = devId
         self.fwVer = fwVer
     }
 

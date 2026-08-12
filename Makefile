@@ -3,8 +3,8 @@ PORT ?= $(shell ls /dev/cu.usbmodem* 2>/dev/null | head -1)
 GLINT := ./host/.build/release/glint
 
 .PHONY: all fw fw-s3 host test test-host test-fw test-go flash monitor \
-        display display-portrait mirror bars hello stats calibrate \
-        pi install-agent uninstall-agent clean
+        display display-portrait display-wifi panels mirror bars hello stats \
+        calibrate pi install-agent uninstall-agent clean
 
 all: fw host
 
@@ -46,6 +46,25 @@ display: host
 # Panel standing upright: 640x960 desktop, exact 2:1 onto 320x480
 display-portrait: host
 	$(GLINT) display --portrait
+
+# Wireless: the panel needs power only, no data cable to the Mac. Each board
+# advertises its own glint-<id>.local; `make panels` lists what is reachable.
+PANEL ?= glint-335b.local
+display-wifi: host
+	$(GLINT) display --net $(PANEL)
+
+# Every panel reachable right now. mDNS keeps stale names cached, so each
+# candidate has to answer a ping before it is offered as a target.
+panels: host
+	@echo "USB:"
+	@$(GLINT) --list 2>/dev/null || echo "  none"
+	@echo "network:"
+	@dns-sd -t 3 -B _glint._tcp 2>/dev/null \
+	  | grep -oE 'glint-[0-9a-f]{4}' | sort -u \
+	  | while read n; do \
+	      ip=`ping -c1 -W900 $$n.local 2>/dev/null | sed -n '1s/.*(\(.*\)).*/\1/p'`; \
+	      [ -n "$$ip" ] && echo "  $$n.local ($$ip) — make display-wifi PANEL=$$n.local"; \
+	    done; true
 
 mirror: host
 	$(GLINT) mirror --landscape

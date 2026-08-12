@@ -114,10 +114,20 @@ static void advertise(void)
         ESP_LOGW(TAG, "mDNS unavailable — connect by IP");
         return;
     }
-    mdns_hostname_set("glint");
-    mdns_instance_name_set("glint panel");
+    /* Unique per board: two panels advertising "glint" collide, and mDNS
+     * resolves the name to whichever won the race while renaming the loser's
+     * service — so the address you connect to is not stable. */
+    /* The factory MAC, not the Wi-Fi MAC: on the P4 the radio is a separate C6,
+     * so ESP_MAC_WIFI_STA is not in this chip's efuse and reads back as zeros.
+     * This matches the id reported in the handshake. */
+    uint8_t mac[6] = {0};
+    esp_read_mac(mac, ESP_MAC_EFUSE_FACTORY);
+    char host[32];
+    snprintf(host, sizeof(host), "glint-%02x%02x", mac[4], mac[5]);
+    mdns_hostname_set(host);
+    mdns_instance_name_set(host);
     mdns_service_add(NULL, "_glint", "_tcp", GLINT_NET_PORT, NULL, 0);
-    ESP_LOGI(TAG, "advertising glint.local:%d", GLINT_NET_PORT);
+    ESP_LOGI(TAG, "advertising %s.local:%d", host, GLINT_NET_PORT);
 }
 
 static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id,
