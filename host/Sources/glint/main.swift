@@ -340,7 +340,10 @@ do {
             let frameTime = Date().timeIntervalSince(frameStart)
             let budget = 1.0 / Double(fps)
             if frameTime < budget {
-                Thread.sleep(forTimeInterval: budget - frameTime)
+                /* Suspends rather than blocking the thread: this loop is async,
+                 * and Thread.sleep here is an error under Swift 6. */
+                try? await Task.sleep(
+                    nanoseconds: UInt64((budget - frameTime) * 1_000_000_000))
             }
         }
 
