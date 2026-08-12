@@ -12,7 +12,6 @@ import (
 	"github.com/shubham030/glint/linux/fb"
 	"github.com/shubham030/glint/linux/proto"
 	"github.com/shubham030/glint/linux/render"
-	"github.com/shubham030/glint/linux/usbfs"
 )
 
 // streamFlags are shared by every mode that pushes frames.
@@ -39,7 +38,7 @@ func addStreamFlags(fs *flag.FlagSet, defaultFPS int) streamFlags {
 	}
 }
 
-func runBars(ctx context.Context, dev *usbfs.Device, hello proto.Hello, args []string) error {
+func runBars(ctx context.Context, dev link, hello proto.Hello, args []string) error {
 	fs := newFlags("bars")
 	fps := fs.Int("fps", 10, "frame rate cap")
 	seconds := fs.Int("seconds", 10, "stop after N seconds (0 = until Ctrl-C)")
@@ -69,7 +68,7 @@ func runBars(ctx context.Context, dev *usbfs.Device, hello proto.Hello, args []s
 	return err
 }
 
-func runImage(ctx context.Context, dev *usbfs.Device, hello proto.Hello, args []string) error {
+func runImage(ctx context.Context, dev link, hello proto.Hello, args []string) error {
 	fs := newFlags("image")
 	fill := fs.Bool("fill", false, "cover the panel, cropping the overflow")
 	landscape := fs.Bool("landscape", false, "rotate for a sideways-mounted panel")
@@ -110,9 +109,10 @@ func runImage(ctx context.Context, dev *usbfs.Device, hello proto.Hello, args []
 	return nil
 }
 
-func runFramebuffer(ctx context.Context, dev *usbfs.Device, hello proto.Hello, args []string) error {
+func runFramebuffer(ctx context.Context, dev link, hello proto.Hello, args []string) error {
 	fs := newFlags("fb")
 	path := fs.String("dev", fb.DefaultDevice, "framebuffer device")
+	native := fs.Bool("native", false, "resize the framebuffer to the panel (no scaling)")
 	sf := addStreamFlags(fs, 30)
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -123,6 +123,26 @@ func runFramebuffer(ctx context.Context, dev *usbfs.Device, hello proto.Hello, a
 		return err
 	}
 	defer src.Close()
+
+	if *native {
+		// Match the console to the panel so glyphs are drawn at their final
+		// size. A 1024x768 console squeezed into 320x480 is unreadable however
+		// good the scaler is; at 1:1 the standard font is simply legible.
+		w, h := hello.PanelW, hello.PanelH
+		if *sf.landscape {
+			w, h = h, w
+		}
+		restore, rerr := src.Resize(w, h)
+		if rerr != nil {
+			return fmt.Errorf("-native: %w", rerr)
+		}
+		defer func() {
+			if err := restore(); err != nil {
+				fmt.Printf("warning: could not restore the framebuffer: %v\n", err)
+			}
+		}()
+	}
+
 	info := src.Info()
 	fmt.Printf("framebuffer %s: %s\n", *path, info)
 

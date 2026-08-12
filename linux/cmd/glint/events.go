@@ -13,7 +13,7 @@ import (
 
 // runEvents drains the bulk IN endpoint and prints the events the mode cares
 // about: "touch" for calibration, "stats" for the device's own counters.
-func runEvents(ctx context.Context, dev *usbfs.Device, mode string, args []string) error {
+func runEvents(ctx context.Context, dev link, mode string, args []string) error {
 	fs := newFlags(mode)
 	all := fs.Bool("all", false, "print every event type, not just this mode's")
 	if err := fs.Parse(args); err != nil {

@@ -25,7 +25,7 @@ expectation is the honest one.
 | — | Wi-Fi transport (TCP, no data cable) | ✅ P4 1.93 MB/s, 6.3 fps |
 | — | Second and third board (S3 SPI, S3 AMOLED) | ✅ one image, `menuconfig` picks the board |
 | M5 | Touch → cursor | ⚠️ written; **calibration never run on hardware** |
-| — | Linux / Pi host | ⚠️ pure Go, cross-compiles for Pi Zero W, **not on hardware** |
+| — | Linux / Pi host | ✅ on a Pi 3: USB **49 fps**, Wi-Fi **32 fps**, console at 1:1 |
 | M6 | DSI panel swap | future ([DESIGN.md](DESIGN.md) §8) |
 
 Everything marked ⚠️ compiles and passes unit tests but has not touched
@@ -34,8 +34,7 @@ hardware — the honest distinction, kept here deliberately.
 ## What is left
 
 `glint touch --calibrate` has never been run: it wants three taps on a real
-panel and prints the `--tp-*` flags for that board. The Linux/Pi host has never
-been run against hardware either (its USB path is raw usbfs ioctls).
+panel and prints the `--tp-*` flags for that board.
 
 ## Quick start (macOS)
 
@@ -99,12 +98,22 @@ make pi                                   # builds arm64 and armv6
 scp linux/glint-pi-arm64 <user>@<pi>:~/glint
 scp packaging/70-glint.rules <user>@<pi>:~/   # usbfs permission, once
 ssh <pi> ./glint fbinfo                   # framebuffer geometry, no panel needed
-ssh <pi> ./glint fb -fill                 # the console, on the panel
+ssh <pi> ./glint fb -native -landscape    # the console, on the panel, 1:1
+ssh <pi> ./glint fb -net auto -native     # same thing with no data cable
 ```
 
 64-bit Raspberry Pi OS (a Pi 3 and up) needs the arm64 build; armv6 covers a Pi
-Zero W. `fb` mirrors a Linux framebuffer — the console path that needs no X
-server. See [linux/README.md](linux/README.md).
+Zero W. Wi-Fi works here too: `-net <host|auto>` on any mode, and `glint panels`
+lists what is advertising itself. `.local` names are resolved by a small
+built-in mDNS client, because a cgo-free binary uses Go's pure resolver, which
+does not consult avahi.
+
+**`-native` is the one that matters for text.** Unlike macOS, we own the
+framebuffer geometry here, so `fb -native` sets the console to the panel's exact
+size and streams **1:1 — no scaling at all** — then restores the old mode on
+exit. Measured on a Pi 3: 49 fps over USB, 32 fps over Wi-Fi, and a static
+console sends almost nothing (144 tiles across 548 frames). See
+[linux/README.md](linux/README.md).
 
 ## Layout
 

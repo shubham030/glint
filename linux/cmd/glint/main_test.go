@@ -31,7 +31,7 @@ func TestUsageListsEveryMode(t *testing.T) {
 }
 
 func TestRunControlValidatesArguments(t *testing.T) {
-	dev := &usbfs.Device{} // never reached by the rejected cases
+	dev := usbLink{&usbfs.Device{}} // never reached by the rejected cases
 	for _, args := range [][]string{{}, {"1", "2"}, {"nope"}, {"-1"}, {"256"}} {
 		err := runControl(dev, proto.CmdBacklight, args, 255, "glint backlight <0-255>")
 		if err == nil || !strings.HasPrefix(err.Error(), "usage:") {
@@ -45,5 +45,37 @@ func TestRunControlValidatesArguments(t *testing.T) {
 	err := runControl(dev, proto.CmdBacklight, []string{"128"}, 255, "glint backlight <0-255>")
 	if err == nil || strings.HasPrefix(err.Error(), "usage:") {
 		t.Errorf("backlight 128 = %v, want a transport error", err)
+	}
+}
+
+func TestTakeTransportFlagsPullsThemOutOfTheModeArguments(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		host string
+		port int
+		rest []string
+	}{
+		{[]string{"-seconds", "5"}, "", defaultNetPort, []string{"-seconds", "5"}},
+		{[]string{"-net", "glint-335b.local"}, "glint-335b.local", defaultNetPort, nil},
+		{[]string{"-net=1.2.3.4", "-fill"}, "1.2.3.4", defaultNetPort, []string{"-fill"}},
+		{[]string{"-net"}, "auto", defaultNetPort, nil},
+		{[]string{"-fill", "-net", "-landscape"}, "auto", defaultNetPort, []string{"-fill", "-landscape"}},
+		{[]string{"-net", "pi.local", "-port", "9000"}, "pi.local", 9000, nil},
+	} {
+		host, port, rest, err := takeTransportFlags(tc.args)
+		if err != nil {
+			t.Errorf("%v: %v", tc.args, err)
+			continue
+		}
+		if host != tc.host || port != tc.port {
+			t.Errorf("%v -> host %q port %d, want %q %d", tc.args, host, port, tc.host, tc.port)
+		}
+		if strings.Join(rest, " ") != strings.Join(tc.rest, " ") {
+			t.Errorf("%v -> rest %v, want %v", tc.args, rest, tc.rest)
+		}
+	}
+
+	if _, _, _, err := takeTransportFlags([]string{"-port"}); err == nil {
+		t.Error("-port with no number should be rejected")
 	}
 }

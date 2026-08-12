@@ -10,10 +10,12 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
+	"time"
 
+	"github.com/shubham030/glint/linux/mdns"
 	"github.com/shubham030/glint/linux/proto"
-	"github.com/shubham030/glint/linux/usbfs"
 )
 
 const usage = `usage: glint <mode> [flags]
@@ -21,14 +23,16 @@ const usage = `usage: glint <mode> [flags]
   hello                                  handshake and print the panel's geometry
   bars [-seconds N] [-fps N]             animated colour bars (transport test)
   image [-fill] [-landscape] <path>      show a PNG or JPEG
-  fb [-dev /dev/fb0] [-fps N]            mirror a Linux framebuffer
+  fb [-dev /dev/fb0] [-fps N] [-native]  mirror a Linux framebuffer
      [-fill] [-landscape] [-seconds N]
   stats                                  print STATS events from the device
   touch                                  print touch events in panel coords
   backlight <0-255>                      set the backlight
   sleep <0|1>                            panel off / on
   fbinfo [-dev /dev/fb0]                 print framebuffer geometry (no panel needed)
+  panels                                 list panels on the network (no panel needed)
 
+Any mode takes -net <host|auto> to use Wi-Fi instead of USB, and -port N.
 Streaming modes run until Ctrl-C unless -seconds is given.
 `
 
@@ -52,6 +56,13 @@ func run(args []string) error {
 		fmt.Print(usage)
 		return nil
 	}
+
+	// -net/-port choose the transport for every mode, so they are pulled out
+	// before the per-mode flag set sees them.
+	netHost, netPort, rest, err := takeTransportFlags(rest)
+	if err != nil {
+		return err
+	}
 	// Reject a typo before opening the device, so it reports the typo rather
 	// than "no glint device on the USB bus".
 	if !modes[mode] {
@@ -69,7 +80,13 @@ func run(args []string) error {
 		return runFramebufferInfo(rest)
 	}
 
-	dev, err := usbfs.Open(proto.VendorID, proto.ProductID)
+	// Discovery needs no panel either, and it is the answer to "what is the
+	// name of my board".
+	if mode == "panels" {
+		return runPanels()
+	}
+
+	dev, err := openLink(netHost, netPort)
 	if err != nil {
 		return err
 	}
@@ -79,8 +96,7 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("%s, usb=%s-speed, ep_max_packet=%d (%s)\n",
-		hello, dev.Speed(), dev.MaxPacketSize(), dev.Path())
+	fmt.Printf("%s, %s\n", hello, dev.Describe())
 
 	return dispatch(ctx, dev, hello, mode, rest)
 }
@@ -89,10 +105,66 @@ func run(args []string) error {
 var modes = map[string]bool{
 	"hello": true, "bars": true, "image": true, "fb": true,
 	"stats": true, "touch": true, "backlight": true, "sleep": true,
-	"fbinfo": true,
+	"fbinfo": true, "panels": true,
 }
 
-func dispatch(ctx context.Context, dev *usbfs.Device, hello proto.Hello, mode string, args []string) error {
+// takeTransportFlags removes -net/-port from args and returns their values.
+// A bare -net (or -net auto) means "find a panel on the network".
+func takeTransportFlags(args []string) (host string, port int, rest []string, err error) {
+	port = defaultNetPort
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		name, value, hasValue := strings.Cut(strings.TrimPrefix(strings.TrimPrefix(a, "-"), "-"), "=")
+		if !strings.HasPrefix(a, "-") || (name != "net" && name != "port") {
+			rest = append(rest, a)
+			continue
+		}
+		if !hasValue {
+			// A following word is the value unless it is the next flag; a bare
+			// -net at the end of the line is legal and means auto.
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				value = args[i+1]
+				i++
+			} else if name == "net" {
+				value = "auto"
+			} else {
+				return "", 0, nil, errors.New("-port needs a number")
+			}
+		}
+		if name == "port" {
+			if port, err = strconv.Atoi(value); err != nil {
+				return "", 0, nil, fmt.Errorf("-port %q: not a number", value)
+			}
+			continue
+		}
+		host = value
+	}
+	return host, port, rest, nil
+}
+
+// runPanels lists the panels advertising themselves on this network.
+func runPanels() error {
+	names, err := mdns.Browse(mdns.GlintService, 2*time.Second)
+	if err != nil && !errors.Is(err, mdns.ErrNoAnswer) {
+		return err
+	}
+	if len(names) == 0 {
+		fmt.Println("no panels are advertising themselves on this network")
+		return nil
+	}
+	for _, n := range names {
+		line := fmt.Sprintf("-net %s.local", n)
+		if ip, rerr := mdns.Resolve(n+".local", 2*time.Second); rerr == nil {
+			line += fmt.Sprintf("   (%s)", ip)
+		} else {
+			line += "   (advertised but not answering — stale entry?)"
+		}
+		fmt.Println(line)
+	}
+	return nil
+}
+
+func dispatch(ctx context.Context, dev link, hello proto.Hello, mode string, args []string) error {
 	switch mode {
 	case "hello":
 		return nil
@@ -115,7 +187,7 @@ func dispatch(ctx context.Context, dev *usbfs.Device, hello proto.Hello, mode st
 }
 
 // handshake performs the CmdHello control read every mode starts with.
-func handshake(dev *usbfs.Device) (proto.Hello, error) {
+func handshake(dev link) (proto.Hello, error) {
 	buf := make([]byte, proto.HelloSize)
 	n, err := dev.ControlRead(proto.CmdHello, 0, buf)
 	if err != nil {
@@ -129,7 +201,7 @@ func handshake(dev *usbfs.Device) (proto.Hello, error) {
 }
 
 // runControl handles the one-argument control writes.
-func runControl(dev *usbfs.Device, request uint8, args []string, maxValue int, use string) error {
+func runControl(dev link, request uint8, args []string, maxValue int, use string) error {
 	if len(args) != 1 {
 		return errors.New("usage: " + use)
 	}

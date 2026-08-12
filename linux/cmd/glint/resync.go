@@ -78,7 +78,7 @@ func scanEvents(buf []byte, w *resyncWatcher) bool {
 // It shares the Device with the frame loop: reads and writes are separate
 // ioctls on separate endpoints. The TileSender is not concurrency-safe, so
 // this only raises a flag — the invalidation happens on the frame goroutine.
-func watchEvents(ctx context.Context, dev *usbfs.Device, resync *atomic.Bool) {
+func watchEvents(ctx context.Context, dev link, resync *atomic.Bool) {
 	buf := make([]byte, max(dev.MaxPacketSize(), proto.EventSize))
 	var w resyncWatcher
 	for ctx.Err() == nil {

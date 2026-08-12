@@ -19,3 +19,6 @@ func (d *Device) Frame() ([]byte, error) { return nil, ErrUnsupported }
 
 // Close is a no-op.
 func (d *Device) Close() error { return nil }
+
+// Resize always fails off Linux.
+func (d *Device) Resize(w, h int) (func() error, error) { return nil, ErrUnsupported }

@@ -24,21 +24,33 @@ const (
 	MagicHello uint32 = 0x4C483450 // 'P4HL'
 	MagicTile  uint32 = 0x44543450 // 'P4TD'
 	MagicEvt   uint32 = 0x56453450 // 'P4EV'
+	MagicReq   uint32 = 0x51523450 // 'P4RQ'
 
 	Version uint16 = 1
 
 	HelloSize      = 24
 	TileHeaderSize = 24
 	EventSize      = 12
+	RequestSize    = 8
 )
 
 // Vendor control requests (bmRequestType: vendor | interface).
 const (
-	CmdHello     uint8 = 0x01
-	CmdBacklight uint8 = 0x02
-	CmdReset     uint8 = 0x03
-	CmdSleep     uint8 = 0x04
+	CmdHello      uint8 = 0x01
+	CmdBacklight  uint8 = 0x02
+	CmdReset      uint8 = 0x03
+	CmdSleep      uint8 = 0x04
+	CmdBootloader uint8 = 0x05
 )
+
+// AppendRequest serialises the 8-byte in-band control request (glint_req_t).
+// A socket has no control pipe, so this is how a network transport asks for a
+// handshake or sets the backlight.
+func AppendRequest(dst []byte, cmd uint8, value uint16) []byte {
+	dst = append32(dst, MagicReq)
+	dst = append(dst, cmd, 0) // cmd, rsvd
+	return append16(dst, value)
+}
 
 // Payload formats. A device advertises support as (1 << fmt) in Hello.FmtMask.
 const (
@@ -69,7 +81,10 @@ type Hello struct {
 	FmtMask     uint16
 	MaxTileLen  int
 	TouchPoints int
-	FwVer       uint32
+	// DevID is a stable per-board id (low 16 bits of the factory MAC). It was
+	// reserved in earlier firmware, which therefore reports 0.
+	DevID uint16
+	FwVer uint32
 }
 
 // Supports reports whether the device accepts a payload format.
@@ -78,8 +93,8 @@ func (h Hello) Supports(format uint16) bool {
 }
 
 func (h Hello) String() string {
-	return fmt.Sprintf("panel %dx%d, fmt_mask=%#x, max_tile=%d, touch=%dpt, fw=%08x",
-		h.PanelW, h.PanelH, h.FmtMask, h.MaxTileLen, h.TouchPoints, h.FwVer)
+	return fmt.Sprintf("panel %dx%d, fmt_mask=%#x, max_tile=%d, touch=%dpt, id=%04x, fw=%08x",
+		h.PanelW, h.PanelH, h.FmtMask, h.MaxTileLen, h.TouchPoints, h.DevID, h.FwVer)
 }
 
 // ParseHello decodes the 24-byte hello struct.
@@ -97,6 +112,7 @@ func ParseHello(b []byte) (Hello, error) {
 		FmtMask:     le16(b, 10),
 		MaxTileLen:  int(le32(b, 12)),
 		TouchPoints: int(le16(b, 16)),
+		DevID:       le16(b, 18),
 		FwVer:       le32(b, 20),
 	}
 	if h.ProtoVer != Version {
@@ -118,7 +134,7 @@ func AppendHello(dst []byte, h Hello) []byte {
 	dst = append16(dst, h.FmtMask)
 	dst = append32(dst, uint32(h.MaxTileLen))
 	dst = append16(dst, uint16(h.TouchPoints))
-	dst = append16(dst, 0) // rsvd
+	dst = append16(dst, h.DevID)
 	return append32(dst, h.FwVer)
 }
 

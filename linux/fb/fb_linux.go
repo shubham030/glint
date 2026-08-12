@@ -14,6 +14,7 @@ import (
 // Framebuffer ioctls; unlike usbfs these are plain numbers, not _IOC-encoded.
 const (
 	fbioGetVScreenInfo = 0x4600
+	fbioPutVScreenInfo = 0x4601
 	fbioGetFScreenInfo = 0x4602
 )
 
@@ -182,4 +183,46 @@ func readFull(f *os.File, buf []byte, off int64) error {
 		}
 	}
 	return nil
+}
+
+// Resize asks for a visible area of w x h and returns a function restoring the
+// previous geometry. The panel is small and fixed, so matching the framebuffer
+// to it means the console renders at its final size — no downscale, no blurred
+// glyphs. `fbset -g` does the same thing; doing it here keeps the 1:1 mode from
+// depending on a boot-time command that a reboot would lose.
+//
+// The virtual resolution is left to the driver: KMS fbdev emulation on a Pi
+// keeps its own backing size and stride, which the reader already handles.
+func (d *Device) Resize(w, h int) (func() error, error) {
+	var before varScreenInfo
+	if err := ioctl(d.f, fbioGetVScreenInfo, unsafe.Pointer(&before)); err != nil {
+		return nil, fmt.Errorf("FBIOGET_VSCREENINFO: %w", err)
+	}
+	if int(before.xres) == w && int(before.yres) == h {
+		return func() error { return nil }, nil
+	}
+
+	want := before
+	want.xres, want.yres = uint32(w), uint32(h)
+	want.activate = 0 // FB_ACTIVATE_NOW
+	if err := ioctl(d.f, fbioPutVScreenInfo, unsafe.Pointer(&want)); err != nil {
+		return nil, fmt.Errorf("FBIOPUT_VSCREENINFO %dx%d: %w", w, h, err)
+	}
+
+	info, _, err := d.mode()
+	if err != nil {
+		return nil, err
+	}
+	if err := info.Validate(); err != nil {
+		return nil, err
+	}
+	d.info = info
+	d.buf = make([]byte, info.Height*info.Stride)
+
+	restore := func() error {
+		prev := before
+		prev.activate = 0
+		return ioctl(d.f, fbioPutVScreenInfo, unsafe.Pointer(&prev))
+	}
+	return restore, nil
 }

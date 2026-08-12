@@ -64,6 +64,28 @@ It grants `GROUP="plugdev", MODE="0660"` — Raspberry Pi OS already puts the
 default user in `plugdev`, and world-writable (`0666`) is more than this needs.
 `udevadm trigger` re-applies it to an already-attached panel, so no replug.
 
+## Transports
+
+Every mode takes `-net <host|auto>` to use Wi-Fi instead of USB, and `-port N`
+for a non-default port. `glint panels` lists the panels advertising themselves.
+
+`.local` names are resolved by `mdns/`, a ~200-line query-only mDNS client. It
+is there because this binary is built without cgo, so Go uses its pure resolver,
+and that resolver does not consult nss-mdns/avahi — `glint-335b.local` would
+otherwise simply fail to resolve, even on a Pi running avahi-daemon.
+
+## Matching the panel exactly
+
+`fb -native` resizes the framebuffer to the panel (rotated when `-landscape`)
+before streaming, and restores the previous mode on exit. That makes the console
+render at its final size: **no scaling, no resampled glyphs**. A 1024x768
+console squeezed into 320x480 is unreadable however good the scaler is; at 1:1
+the standard console font is simply legible.
+
+This is the thing macOS cannot do — `CGVirtualDisplay` refuses modes whose
+smaller dimension is under ~500 px, so the Mac renders at 960x640 and downscales
+exactly 2:1. Here the geometry is ours to set.
+
 ## Run
 
 ```sh
