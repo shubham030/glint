@@ -51,20 +51,18 @@ real pointer fields and the request numbers are computed from
 
 ## udev
 
-Without a rule you need root. Create `/etc/udev/rules.d/70-glint.rules`:
-
-```
-SUBSYSTEM=="usb", ATTR{idVendor}=="cafe", ATTR{idProduct}=="4010", MODE="0666"
-```
-
-then
+Without a rule you need root: `/dev/bus/usb/*` is `root:root 0664`, so the host
+reports `permission denied` on the device node. The rule ships in the repo:
 
 ```sh
+scp packaging/70-glint.rules <user>@<host>:~/
+sudo install -m 644 ~/70-glint.rules /etc/udev/rules.d/
 sudo udevadm control --reload-rules && sudo udevadm trigger
 ```
 
-Replug the panel afterwards. (`MODE="0666"` is world-writable; for a shared
-machine prefer `GROUP="plugdev", MODE="0660"` and add yourself to `plugdev`.)
+It grants `GROUP="plugdev", MODE="0660"` — Raspberry Pi OS already puts the
+default user in `plugdev`, and world-writable (`0666`) is more than this needs.
+`udevadm trigger` re-applies it to an already-attached panel, so no replug.
 
 ## Run
 

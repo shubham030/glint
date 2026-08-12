@@ -90,12 +90,21 @@ none. Desktop size: `--width W --height H --1x`. Frame cap: `--fps N`.
 ## Linux and Raspberry Pi
 
 The protocol is host-agnostic, so a Pi can drive the same panel with no
-virtual-display trickery — render something and tile it out. `make pi`
-cross-compiles the pure-Go host for a Pi Zero W (armv6). It has **no cgo and no
-module dependencies**: USB goes straight to the kernel via usbfs ioctls, so
-cross-compiling needs no libusb and no network. Modes include `fb`, which
-mirrors a Linux framebuffer — the console path that needs no X server. See
-[linux/README.md](linux/README.md).
+virtual-display trickery — render something and tile it out. It has **no cgo and
+no module dependencies**: USB goes straight to the kernel via usbfs ioctls, so
+cross-compiling needs no libusb and no network.
+
+```sh
+make pi                                   # builds arm64 and armv6
+scp linux/glint-pi-arm64 <user>@<pi>:~/glint
+scp packaging/70-glint.rules <user>@<pi>:~/   # usbfs permission, once
+ssh <pi> ./glint fbinfo                   # framebuffer geometry, no panel needed
+ssh <pi> ./glint fb -fill                 # the console, on the panel
+```
+
+64-bit Raspberry Pi OS (a Pi 3 and up) needs the arm64 build; armv6 covers a Pi
+Zero W. `fb` mirrors a Linux framebuffer — the console path that needs no X
+server. See [linux/README.md](linux/README.md).
 
 ## Layout
 

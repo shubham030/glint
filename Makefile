@@ -73,10 +73,15 @@ stats: host
 calibrate: host
 	$(GLINT) touch --calibrate
 
-# Cross-compile the Go host for a Pi Zero W.
+# Cross-compile the Go host for both shapes of Pi. 64-bit Raspberry Pi OS (a
+# Pi 3 and up) needs arm64; armv6 covers a Pi Zero W and 32-bit Pi OS anywhere.
+# `uname -m` on the target says which: aarch64 or armv6l/armv7l.
 pi:
-	cd linux && GOOS=linux GOARCH=arm GOARM=6 go build -o glint-pi ./cmd/glint
-	@echo "built linux/glint-pi — copy to the Pi and run ./glint-pi hello"
+	cd linux && GOOS=linux GOARCH=arm64 go build -o glint-pi-arm64 ./cmd/glint
+	cd linux && GOOS=linux GOARCH=arm GOARM=6 go build -o glint-pi-armv6 ./cmd/glint
+	@echo "built linux/glint-pi-arm64 and linux/glint-pi-armv6"
+	@echo "scp linux/glint-pi-arm64 <user>@<pi>:~/glint   # then ./glint fbinfo"
+	@echo "usbfs needs a udev rule once: packaging/70-glint.rules"
 
 install-agent: host
 	cp packaging/com.shubham.glint.plist $(HOME)/Library/LaunchAgents/
