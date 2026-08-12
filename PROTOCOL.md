@@ -68,8 +68,8 @@ struct glint_hello {       // 24 bytes, device → host
     uint16_t panel_h;      // 480
     uint16_t fmt_mask;     // bit0 RGB565, bit1 RGB565_RLE, bit2 JPEG
     uint32_t max_tile_len; // largest single payload the device will accept
-    uint16_t touch_points; // 2 on FT6336
-    uint16_t rsvd;
+    uint16_t touch_points; // 2 with a working controller, 0 with none
+    uint16_t dev_id;       // low 16 bits of the factory MAC; 0 before v1.1
     uint32_t fw_ver;
 };
 ```
@@ -151,7 +151,12 @@ the limit and RLE is mostly a latency win.
 Reserved. Worth having when a DSI panel with hardware JPEG decode makes it pay
 (README §8); pointless at 320×480, where decode cost exceeds the bytes saved.
 
-## Events (device → host, bulk IN)
+## Events (device → host)
+
+Bulk IN on USB, the same bytes on the socket. **Every event is sent to every
+live transport**, because the device cannot know where the host is: a producer
+that talks to one transport only makes its events invisible to the other, which
+looks exactly like broken hardware from the far end.
 
 ```c
 struct glint_evt {         // 12 bytes
@@ -163,7 +168,9 @@ struct glint_evt {         // 12 bytes
 };
 ```
 
-**Touch.** The FT6336 is polled at 60 Hz and events are emitted only on change,
+**Touch.** `touch_points` in the handshake reports what the controller actually
+did at boot — 0 means no driver or no answer, so a host can say so instead of
+waiting for taps that cannot come. The FT6336 is polled at 60 Hz and events are emitted only on change,
 with a 2-pixel movement threshold so a resting finger does not stream MOVEs.
 Coordinates are **panel-native** — the device deliberately does not know the
 display's rotation, so the host owns the mapping (see "Touch mapping" below).
@@ -205,8 +212,34 @@ Vendor requests on the interface. `bmRequestType` is `0xC1` for the read and
 | `0x02` | `CMD_BACKLIGHT` | `wValue` = 0…255 |
 | `0x03` | `CMD_RESET` | drop queued tiles; host follows with a full refresh |
 | `0x04` | `CMD_SLEEP` | `wValue` 1 = panel off, 0 = on; USB stays up |
+| `0x05` | `CMD_BOOTLOADER` | reboot into the ROM download loader |
 
 Unknown requests are stalled rather than silently accepted.
+
+`CMD_BOOTLOADER` exists because these boards have no UART bridge on the data
+port: without it, reflashing means holding BOOT while tapping RESET. It sets a
+one-shot `RTC_NOINIT` flag and restarts — deliberately *not* the RTC
+force-download strap, which survives every reset and only clears on true power
+loss, stranding the board in the loader until it is physically unplugged.
+
+### Over a socket
+
+TCP has no control pipe, so the same commands travel in band as an 8-byte
+request. The device answers `CMD_HELLO` with a `glint_hello_t` on the same
+stream:
+
+```c
+struct glint_req {         // 8 bytes, host → device
+    uint32_t magic;        // 'P4RQ'
+    uint8_t  cmd;          // the CMD_* codes above
+    uint8_t  rsvd;
+    uint16_t value;        // what wValue would carry
+};
+```
+
+The parser decides on the 4-byte magic alone, before it has a whole tile
+header: a request is 8 bytes and a tile header is 24, so waiting for 24 would
+deadlock against a host that sends a request and then waits for its reply.
 
 ## Touch mapping
 

@@ -1,15 +1,27 @@
 # glint — Linux host
 
 A pure-Go host for the glint panel. Same wire protocol as the macOS host
-(`protocol/protocol.h` is the source of truth), aimed at a **Raspberry Pi Zero W**
+(`protocol/protocol.h` is the source of truth), aimed at a **Raspberry Pi**
 driving the panel as a standalone dashboard, and at amd64 Linux desktops.
 
 **No cgo, no libusb, no external Go modules.** USB goes straight to the kernel
-through usbfs ioctls; the framebuffer through `FBIOGET_VSCREENINFO`. `go.mod`
-has zero requires, so cross-compiling is one command with no network.
+through usbfs ioctls; the framebuffer through `FBIOGET_VSCREENINFO`; mDNS
+through a query-only client in `mdns/`. `go.mod` has zero requires, so
+cross-compiling is one command with no network.
+
+Measured on a Pi 3 (ESP32-P4 panel, colour bars, RLE):
+
+| | tiled | whole frames (`-full`) |
+|---|---|---|
+| USB | 49.3 fps, 0.77 MB/s | 45.6 fps, 0.71 MB/s |
+| Wi-Fi | 35.1 fps, 0.55 MB/s | 32.5 fps, 0.51 MB/s |
+
+Both are well under the 1.93 MB/s this panel sustains to a Mac over the same
+Wi-Fi, so the Pi's own render and encode is the limit here, not either link.
 
 ```
 linux/
+  mdns/    query-only mDNS: browse _glint._tcp, resolve .local        (tested)
   proto/   wire format, dirty-tile coalescer, RGB565 RLE codec  (platform-neutral, tested)
   render/  colour bars, PNG/JPEG loading, box scaler, framebuffer pixel conversion (tested)
   fb/      Linux framebuffer device (ioctls in fb_linux.go)
@@ -89,14 +101,20 @@ exactly 2:1. Here the geometry is ours to set.
 ## Run
 
 ```sh
-glint hello                                  # handshake; prints geometry, fmt_mask, USB speed
-glint bars -seconds 10 -fps 10               # animated colour bars: the transport test
+glint panels                                 # panels on the network (no panel needed)
+glint hello                                  # handshake; prints geometry, fmt_mask, link
+glint bars -seconds 10 -fps 10 [-full]       # colour bars: the transport test
 glint image -fill -landscape photo.jpg       # PNG/JPEG, scaled to the panel
-glint fb -dev /dev/fb0 -fps 30 -landscape    # mirror the Linux console framebuffer
+glint fb -native -landscape                  # the console, at the panel's exact size
+glint fb -dev /dev/fb0 -fps 30 [-full]       # ...or scaled from whatever mode is set
+glint fbinfo                                 # framebuffer geometry (no panel needed)
 glint stats                                  # dropped-tile / resync counters from the device
-glint touch                                  # touch events in panel coordinates (calibration)
+glint touch                                  # touch events in panel coordinates
 glint backlight 128
 glint sleep 1                                # 1 = panel off, 0 = on
+
+glint fb -net auto -native                   # any of the above, over Wi-Fi
+glint hello -net glint-335b.local -port 7788 # ...or naming the board
 ```
 
 Every mode starts with the `CMD_HELLO` control read and adapts to the geometry
@@ -110,7 +128,7 @@ unless `-seconds` is given.
 
 `glint fb` needs no X server: it reads `/dev/fb0` directly, converts whatever
 bpp the driver reports to RGB565, scales it to the panel and tiles it out. On a
-Pi Zero W, put it in a systemd unit and you have a headless dashboard. Force a
+Pi, put it in a systemd unit and you have a headless dashboard. Force a
 small console mode in `/boot/config.txt` (e.g. `framebuffer_width=640`,
 `framebuffer_height=480`) — the scaler cost is proportional to the source area,
 and the Zero's ARM11 is not fast.

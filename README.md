@@ -23,9 +23,12 @@ expectation is the honest one.
 | M4 | Dirty-rect tiling | ✅ **300 KB → 18 KB per frame** (16.6×) |
 | — | RGB565 RLE (fmt 1) | ✅ on by default; **7.9 MB/s, 25.7 fps** on the P4 |
 | — | Wi-Fi transport (TCP, no data cable) | ✅ P4 1.93 MB/s, 6.3 fps |
-| — | Second and third board (S3 SPI, S3 AMOLED) | ✅ one image, `menuconfig` picks the board |
+| — | Second board: S3 AMOLED 1.75" (CO5300 QSPI, 466×466) | ✅ one image, `menuconfig` picks the board |
 | M5 | Touch → cursor | ✅ calibrated on the P4: `--tp-swap --tp-flip-x` |
 | — | Linux / Pi host | ✅ on a Pi 3: USB **49 fps**, Wi-Fi **32 fps**, console at 1:1 |
+| — | S3 3.5" SPI board profile | ⚠️ builds, **no such board here to run it on** |
+| — | Touch on the AMOLED | ⚠️ no CST9217 driver; it reports `touch=0pt`, honestly |
+| — | Windows host | ⚠️ not started; needs MS OS 2.0 descriptors so WinUSB binds |
 | M6 | DSI panel swap | future ([DESIGN.md](DESIGN.md) §8) |
 
 Everything marked ⚠️ compiles and passes unit tests but has not touched
@@ -117,20 +120,21 @@ protocol/protocol.h   the wire format — single source of truth
 PROTOCOL.md           what that header means, and why
 DESIGN.md             the original design doc (reasoning, hardware analysis)
 HARDWARE.md           real pin maps, flashing, macOS mode limits
-firmware/             ESP-IDF v5.5: TinyUSB vendor → tiles → ST7796
-  main/               board.h, lcd.c, usb_vendor.c, touch.c, rle.c
+firmware/             ESP-IDF v5.5: TinyUSB vendor / TCP → tiles → panel
+  main/               board.h, lcd.c, usb_vendor.c, net.c, stream.c, touch.c
   test/               host-compiled tests for the pure C logic
 host/                 macOS: Swift + libusb
   Sources/GlintCore/  wire format, tiling, RLE (platform-neutral, tested)
-  Sources/glint/      CLI, capture, CGVirtualDisplay, touch
-linux/                pure-Go host (Pi Zero W and amd64)
-packaging/            LaunchAgent for login start
+  Sources/glint/      CLI, capture, CGVirtualDisplay, touch, discovery
+linux/                pure-Go host (Pi and amd64), no cgo, no dependencies
+  mdns/               query-only mDNS, because a cgo-free binary cannot use avahi
+packaging/            LaunchAgent for login start, udev rule for usbfs
 ```
 
 ## Verification without hardware
 
 ```sh
-make test        # 23 Swift unit tests + C decoder tests + Go tests
+make test        # 23 Swift unit tests + C decoder tests + 6 Go packages
 ```
 
 All three RLE implementations are pinned to each other by a shared fixture:

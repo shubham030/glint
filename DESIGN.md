@@ -197,12 +197,12 @@ The Mac app doesn't change at all, provided the handshake in §5.1 is honoured.
 
 | | | Proves | Status |
 |---|---|---|---|
-| M0 | Colour bars pushed over USB from a Mac CLI tool | Transport + framing | ✅ 14.7 fps, 4.5 MB/s (HS) |
+| M0 | Colour bars pushed over USB from a Mac CLI tool | Transport + framing | ✅ 7.9 MB/s after batching writes (was 4.5) |
 | M1 | Static PNG → full-frame → panel | Format conversion, SPI throughput | ✅ fit/fill/landscape, EXIF-aware |
 | M2 | ScreenCaptureKit on the **main** display → panel | Capture + convert pipeline | ✅ 11.3 fps @ 12 cap |
 | M3 | Swap in CGVirtualDisplay | The private-API half | ✅ extended desktop, 960×640 (see HARDWARE.md for macOS mode limits) |
-| M4 | Dirty-rect tiling | Usable frame rate | — |
-| M5 | FT6336 → CGEventPost | Input loop | — (I2C pins: see carplay/hardware schematic) |
+| M4 | Dirty-rect tiling | Usable frame rate | ✅ 300 KB → 18 KB/frame; 25.7 fps |
+| M5 | FT6336 → CGEventPost | Input loop | ✅ calibrated: `--tp-swap --tp-flip-x` |
 | M6 | DSI panel swap | §8 | — |
 
 M0–M2 need no private APIs and are where most of the risk lives. Don't touch
@@ -211,11 +211,14 @@ M0–M2 need no private APIs and are where most of the risk lives. Don't touch
 ### Usage
 
 ```
-make display            # extended desktop on the panel (landscape, 960×640)
+make panels             # every panel reachable, USB and network
+make display            # extended desktop: USB if cabled, else Wi-Fi
 make display-portrait   # panel standing upright (640×960)
+make display-wifi       # wireless only (PANEL=<host> to name one)
 make mirror             # mirror the main display instead
 make bars               # M0 transport test
 ./host/.build/release/glint image <path> [--fill] [--landscape]
+./host/.build/release/glint display --touch --tp-swap --tp-flip-x
 ./host/.build/release/glint backlight <0-255>
 ```
 
@@ -253,3 +256,39 @@ screen twice.
 
 What makes it worth building is that the Mac-side app is ~90% of the work,
 panel-agnostic, and survives the DSI upgrade in §8.
+
+---
+
+## 12. What was built that this document did not anticipate
+
+The design assumed one board, one transport, one host. None of that held, and
+the reasons are worth keeping.
+
+**A second transport.** The panel has Wi-Fi, so it can take the same tile
+stream over TCP with no data cable at all — power only. A socket has no control
+pipe, which is why the protocol grew an in-band request (`glint_req_t`). The
+first attempt was eight times too slow for a reason that had nothing to do with
+the radio: lwIP's default 5.7 KB receive window against this round-trip time
+capped it at 0.24 MB/s. A 64 KB window with scaling took it to 1.93 MB/s.
+
+**Discovery.** With more than one board, "which panel?" became a real question.
+Each board advertises `_glint._tcp` and sets its mDNS hostname *and* instance
+name to `glint-<id>`, where the id is the low 16 bits of its factory MAC — the
+same value the handshake reports as `dev_id`. The hosts find a panel by
+themselves: USB when a cable is in, otherwise the first panel that answers.
+
+**A third host, and the resolution problem.** A Raspberry Pi drives the same
+panel with a pure-Go host — no cgo, no dependencies, usbfs ioctls straight to
+the kernel. Being cgo-free means Go's pure resolver, which does not consult
+avahi, so `.local` needed a small mDNS client of our own. The Pi can do
+something macOS cannot: `fb -native` sets the console framebuffer to the
+panel's exact size and streams **1:1**. `CGVirtualDisplay` refuses any mode
+whose smaller dimension is under ~500 px, so the Mac renders 960×640 and
+downscales exactly 2:1 — clean supersampling, but not native.
+
+**Three boards from one image.** `menuconfig` picks the board; `board.h` holds
+the profiles. The 1.75" AMOLED needed a QSPI path (CO5300, 32-bit commands, no
+DC line) beside the SPI one.
+
+**§11 still stands.** Everything above changed how pixels arrive, not what the
+panel is for. It is still a status panel.
