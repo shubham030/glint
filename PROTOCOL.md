@@ -11,6 +11,11 @@ fail the handshake rather than half-work.
 
 ## Transport
 
+Two transports carry the identical byte stream; a host that can frame tiles can
+use either.
+
+### USB
+
 A single **vendor-specific USB interface**, claimed from userspace. No kext, no
 driver signing, nothing for the OS to bind to first (§10 of the README explains
 why a pure vendor interface matters).
@@ -27,6 +32,26 @@ max packet size (512 on high speed, 64 on full speed) must be followed by a
 zero-length packet, or the device waits forever for the rest of a transfer that
 already ended. Both hosts do this in their bulk-write path; it is the classic
 bring-up bug.
+
+### TCP, over Wi-Fi
+
+The same stream on a socket: **port 7788, one client at a time**. A socket has no
+control pipe, so control travels in band as the 8-byte `glint_req_t` below, and
+the HELLO reply comes back on the same stream rather than in a data stage.
+
+Discovery is mDNS. The device advertises `_glint._tcp` on 7788 and sets its mDNS
+**hostname and instance name to the same** `glint-<id>` string, where `<id>` is
+the low 16 bits of the factory MAC — the same value the handshake reports as
+`dev_id`. A browse result therefore becomes a connectable address by appending
+`.local`, with no resolve step; the macOS host relies on that coupling, so
+changing one name in firmware means changing both.
+
+**A completed TCP connection does not mean the panel will serve you.** lwIP's
+listen backlog finishes the handshake for a queued connection while the firmware
+is still serving its one client, so `connect` succeeds against a panel that will
+never answer — the same board reports free and busy in consecutive probes. Only a
+HELLO round trip proves availability, which is what `glint --list` uses to mark a
+panel *in use*, and what auto-selection uses to skip it.
 
 ## Handshake
 

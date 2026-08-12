@@ -2,9 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
     "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  Runs the extended display at login. `glint display` waits for the panel, so
-  the agent can start before the cable is plugged in; KeepAlive restarts it if
-  the panel is unplugged (the session exits 3 on disconnect).
+  Runs the extended display at login. `glint display` finds the panel itself —
+  USB if a cable is in, otherwise the first panel answering on the network — and
+  waits for one to appear, so the agent can start before the panel exists.
+  KeepAlive restarts it when the panel goes away (the session exits 3 on
+  disconnect), which is also how it picks up a board that reboots.
 
   Install:
     cp packaging/com.shubham.glint.plist ~/Library/LaunchAgents/

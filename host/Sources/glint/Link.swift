@@ -44,11 +44,28 @@ enum NetError: Error, CustomStringConvertible {
     case connect(String, Int32)
     case closed
     case badHello
+    case noPanelAnywhere
+    case allBusy([String])
 
     var description: String {
         switch self {
+        case let .allBusy(hosts):
+            return """
+                \(hosts.joined(separator: ", ")) \(hosts.count == 1 ? "is" : "are") \
+                up but already serving a client — the panel takes one at a time. \
+                Stop the other glint session (`pkill -f "glint display"`) or \
+                plug in over USB.
+                """
+        case .noPanelAnywhere:
+            return """
+                no panel found — nothing on USB, nothing answering on the \
+                network. Check the cable, or that the board joined Wi-Fi \
+                (`make monitor`). `glint --list` shows both.
+                """
         case let .connect(host, code):
-            return "cannot reach \(host): \(String(cString: strerror(code)))"
+            return code == 0
+                ? "cannot reach \(host)"
+                : "cannot reach \(host): \(String(cString: strerror(code)))"
         case .closed:
             return "the panel closed the connection"
         case .badHello:
@@ -78,11 +95,15 @@ final class NetLink: Link {
 
         let s = socket(first.pointee.ai_family, first.pointee.ai_socktype, 0)
         guard s >= 0 else { throw NetError.connect(host, errno) }
-        guard connect(s, first.pointee.ai_addr, first.pointee.ai_addrlen) == 0
+        /* Bounded connect: a panel that is powered but off the network would
+         * otherwise hang here for the OS default of over a minute. */
+        guard
+            connectWithTimeout(
+                s, first.pointee.ai_addr, first.pointee.ai_addrlen, timeoutSec)
         else {
             let e = errno
             close(s)
-            throw NetError.connect(host, e)
+            throw NetError.connect(host, e == 0 ? ETIMEDOUT : e)
         }
 
         /* Tiles are latency-sensitive and already batched, so Nagle only adds
@@ -164,13 +185,87 @@ final class NetLink: Link {
     var describeLink: String { "wifi \(host):\(port)" }
 }
 
+/// How the caller wants the panel found.
+enum LinkChoice: Equatable {
+    /// USB if a panel is plugged in, otherwise whatever is on the network.
+    case auto
+    case usbOnly
+    case netOnly
+    case host(String)
+}
+
+/// Opens a panel without being told where it is.
+///
+/// USB wins when both are available: it is an order of magnitude faster, and a
+/// plugged-in cable is a clearer statement of intent than a board that merely
+/// happens to be on the same network. When `wait` is set this keeps looking, so
+/// the session can be started before the panel exists — that is what makes the
+/// login agent work for both transports.
+func openPanel(
+    _ choice: LinkChoice, wait: Bool, devIndex: Int = 0,
+    port: UInt16 = UInt16(GlintNetPort)
+) throws -> Link {
+    if case let .host(h) = choice {
+        return try NetLink(host: h, port: port)
+    }
+
+    var announcedWait = false
+    while true {
+        if choice != .netOnly {
+            do {
+                return try USBDevice.open(
+                    vid: Glint.vid, pid: Glint.pid, waitForDevice: false,
+                    index: devIndex)
+            } catch let error as USBError {
+                /* Only "nothing plugged in" is worth falling back on; a
+                 * permissions or claim failure must surface as itself. */
+                guard case .notFound = error else { throw error }
+            }
+        }
+
+        var busy: [String] = []
+        if choice != .usbOnly {
+            let (link, occupied) = openFirstAnsweringPanel(port: port)
+            busy = occupied
+            if let link {
+                if !occupied.isEmpty {
+                    print(
+                        "skipped \(occupied.joined(separator: ", ")) — "
+                            + "already in use")
+                }
+                return link
+            }
+        }
+
+        guard wait else {
+            if !busy.isEmpty { throw NetError.allBusy(busy) }
+            switch choice {
+            case .usbOnly: throw USBError.notFound
+            case .netOnly:
+                throw NetError.connect("any panel on the network", 0)
+            default:
+                throw NetError.noPanelAnywhere
+            }
+        }
+        if !announcedWait {
+            let where_ =
+                choice == .usbOnly
+                ? "USB" : (choice == .netOnly ? "the network" : "USB or Wi-Fi")
+            print("waiting for a panel on \(where_)…")
+            announcedWait = true
+        }
+        /* Discovery already spent ~2s of this; a USB-only wait needs the sleep. */
+        if choice == .usbOnly { Thread.sleep(forTimeInterval: 1.0) }
+    }
+}
+
 /// True when the transport is gone rather than merely erroring — a USB unplug or
 /// a closed socket. Callers exit instead of retrying a dead link.
 func isLinkGone(_ error: Error) -> Bool {
     if let usb = error as? USBError { return usb.isDisconnect }
     if let net = error as? NetError {
         switch net {
-        case .closed, .connect: return true
+        case .closed, .connect, .noPanelAnywhere, .allBusy: return true
         case .badHello: return false
         }
     }

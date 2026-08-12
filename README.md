@@ -42,23 +42,33 @@ been run against hardware either (its USB path is raw usbfs ioctls).
 ```sh
 make            # build firmware + host
 make flash      # flash the panel (UART Type-C port)
-make display    # extended desktop on the panel, over USB
+make display    # extended desktop on the panel
 ```
 
-`make display` waits for the panel, so running it before the cable is plugged in
-is fine; it exits when the panel is unplugged so a supervisor can restart it.
-`make install-agent` runs it at login.
+`make display` finds the panel by itself: **USB if a cable is in, otherwise the
+first panel answering on the network** (each board advertises `_glint._tcp` as
+`glint-<id>.local`). USB wins when both are available — it is an order of
+magnitude faster, and a plugged-in cable is the clearer statement of intent.
 
-No data cable — the panel needs power only:
+It also waits, so starting it before the panel exists is fine, and it exits when
+the panel goes away so a supervisor can restart it. `make install-agent` runs it
+at login — which now covers a panel that is powered on the far side of the room
+with no cable at all.
+
+Naming one deliberately:
 
 ```sh
-make panels                              # what is reachable, on USB and on the network
-make display-wifi PANEL=glint-335b.local # each board advertises its own name
+make panels                              # every panel reachable, both transports
+make display-wifi                        # wireless only, auto-picked
+make display-wifi PANEL=glint-335b.local # wireless, that board
+glint display --usb                      # USB only
+glint display --dev 1                     # the second panel on USB
 ```
 
-Two panels attached at once? `glint --list`, then `glint display --dev N`. On
-screen they identify themselves by board id (`glint 335b`), so macOS keeps each
-one's arrangement and resolution separately.
+`glint --list` marks a panel already serving another session as *in use*, since
+the firmware takes one client at a time. On screen panels identify themselves by
+board id (`glint 335b`), so macOS keeps each one's arrangement and resolution
+separately.
 
 Other modes:
 

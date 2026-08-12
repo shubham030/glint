@@ -5,11 +5,15 @@ import Foundation
 // glint — host CLI. Every mode starts with the HELLO handshake and adapts to
 // the panel geometry the device reports.
 //
+// A panel is found on its own: USB when a cable is in, otherwise the first
+// panel answering on the network. `--net <host>` names one, `--net` alone means
+// wireless only, `--usb` the reverse, `--list` shows everything reachable.
+//
 //   glint hello                                      probe + print handshake
 //   glint bars [--seconds N] [--fps N]               M0 transport test
 //   glint image <path> [--fill] [--landscape]        M1 static image
 //   glint mirror [--fps N] [--landscape]             M2 mirror the main display
-//   glint display [--portrait] [--width W --height H --1x]
+//   glint display [--portrait] [--width W --height H --1x]   auto: USB, else Wi-Fi
 //                 [--sat P] [--con P] [--flat] [--full]
 //                 [--touch [--tp-swap --tp-flip-x --tp-flip-y]]
 //                                                    M3/M4 extended display
@@ -21,6 +25,12 @@ import Foundation
 //   glint sleep <0|1>
 //
 // Session modes run until Ctrl-C unless --seconds is given.
+
+/* Under launchd stdout is a file (/tmp/glint.log), and full buffering would
+ * hold progress lines — "waiting for a panel…", the handshake summary — until
+ * the buffer filled or the process exited. Line buffering costs nothing at this
+ * print volume and makes the log readable while a session runs. */
+setvbuf(stdout, nil, _IOLBF, 0)
 
 func fail(_ msg: String) -> Never {
     FileHandle.standardError.write(Data(("glint: " + msg + "\n").utf8))
@@ -66,15 +76,25 @@ if mode == "doctor" {
     runDoctor()
 }
 
-/* With more than one panel attached the firmware's fixed serial number cannot
- * distinguish them, so list bus/address and let the caller pick with --dev. */
+/* Every panel reachable right now, on either transport. With more than one
+ * attached the firmware's fixed serial number cannot distinguish them, so list
+ * bus/address and let the caller pick with --dev. */
 if CommandLine.arguments.contains("--list") {
-    let found = (try? USBDevice.list(vid: Glint.vid, pid: Glint.pid)) ?? []
-    if found.isEmpty {
-        print("no glint devices found")
+    let usb = (try? USBDevice.list(vid: Glint.vid, pid: Glint.pid)) ?? []
+    for (i, d) in usb.enumerated() {
+        print("USB      --dev \(i): \(d.description)")
     }
-    for (i, d) in found.enumerated() {
-        print("--dev \(i): \(d.description)")
+    /* Every candidate is probed, so a stale mDNS registration is not offered as
+     * something to connect to and a panel in use says so rather than looking
+     * absent. */
+    let net = probePanels()
+    for p in net {
+        print(
+            "network  --net \(p.host)"
+                + (p.status == .busy ? "   (in use by another session)" : ""))
+    }
+    if usb.isEmpty && net.isEmpty {
+        print("no panels found on USB or on the network")
     }
     exit(0)
 }
@@ -84,21 +104,25 @@ let sessionModes: Set<String> = ["display", "mirror", "touch", "stats"]
 let waitForDevice =
     sessionModes.contains(mode) && !CommandLine.arguments.contains("--no-wait")
 
-do {
-    /* --net picks the wireless transport; everything above the Link protocol
-     * is identical either way. */
-    let dev: Link
-    if let i = CommandLine.arguments.firstIndex(of: "--net"),
-        i + 1 < CommandLine.arguments.count
-    {
-        dev = try NetLink(
-            host: CommandLine.arguments[i + 1],
-            port: UInt16(argValue("--port", default: 7788)))
-    } else {
-        dev = try USBDevice.open(
-            vid: Glint.vid, pid: Glint.pid, waitForDevice: waitForDevice,
-            index: argValue("--dev", default: 0))
+/* Where to look for a panel. The default is "wherever it is": USB when a cable
+ * is in, otherwise the first panel answering on the network. `--net <host>`
+ * names one explicitly, `--net` alone means wireless-only, `--usb` the reverse.
+ * Everything above the Link protocol is identical either way. */
+func linkChoice() -> LinkChoice {
+    if CommandLine.arguments.contains("--usb") { return .usbOnly }
+    guard let i = CommandLine.arguments.firstIndex(of: "--net") else {
+        return .auto
     }
+    let next = i + 1 < CommandLine.arguments.count
+        ? CommandLine.arguments[i + 1] : "auto"
+    return (next == "auto" || next.hasPrefix("--")) ? .netOnly : .host(next)
+}
+
+do {
+    let dev = try openPanel(
+        linkChoice(), wait: waitForDevice,
+        devIndex: argValue("--dev", default: 0),
+        port: UInt16(argValue("--port", default: GlintNetPort)))
     let hello = try dev.handshake()
     let fw = String(format: "%08x", hello.fwVer)
     print(

@@ -38,8 +38,9 @@ flash:
 monitor:
 	cd firmware && $(IDF_EXPORT) && idf.py -p $(PORT) monitor
 
-# The virtual display lives exactly as long as this process; it waits for the
-# panel, so starting it before the cable is plugged in is fine.
+# Finds the panel itself: USB when a cable is in, otherwise the first panel
+# answering on the network. The virtual display lives exactly as long as this
+# process, and it waits, so starting it before the panel exists is fine.
 display: host
 	$(GLINT) display
 
@@ -47,24 +48,15 @@ display: host
 display-portrait: host
 	$(GLINT) display --portrait
 
-# Wireless: the panel needs power only, no data cable to the Mac. Each board
-# advertises its own glint-<id>.local; `make panels` lists what is reachable.
-PANEL ?= glint-335b.local
+# Wireless only, ignoring USB — the panel needs power and nothing else. Empty
+# PANEL auto-picks; PANEL=glint-335b.local names one board.
+PANEL ?=
 display-wifi: host
 	$(GLINT) display --net $(PANEL)
 
-# Every panel reachable right now. mDNS keeps stale names cached, so each
-# candidate has to answer a ping before it is offered as a target.
+# Every panel reachable right now, on either transport.
 panels: host
-	@echo "USB:"
-	@$(GLINT) --list 2>/dev/null || echo "  none"
-	@echo "network:"
-	@dns-sd -t 3 -B _glint._tcp 2>/dev/null \
-	  | grep -oE 'glint-[0-9a-f]{4}' | sort -u \
-	  | while read n; do \
-	      ip=`ping -c1 -W900 $$n.local 2>/dev/null | sed -n '1s/.*(\(.*\)).*/\1/p'`; \
-	      [ -n "$$ip" ] && echo "  $$n.local ($$ip) — make display-wifi PANEL=$$n.local"; \
-	    done; true
+	@$(GLINT) --list
 
 mirror: host
 	$(GLINT) mirror --landscape
