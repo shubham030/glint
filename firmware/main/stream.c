@@ -10,6 +10,7 @@
 #include "esp_system.h"
 #include "lcd.h"
 #include "rle.h"
+#include "touch.h"
 
 
 
@@ -91,7 +92,8 @@ void glint_hello_fill(glint_hello_t *out)
         .panel_h = BOARD_LCD_V_RES,
         .fmt_mask = (1u << GLINT_FMT_RGB565) | (1u << GLINT_FMT_RGB565_RLE),
         .max_tile_len = BOARD_MAX_TILE_LEN,
-        .touch_points = 2,
+        /* Reported honestly: a host that sees 0 knows not to wait for taps. */
+        .touch_points = touch_available() ? 2 : 0,
         .dev_id = glint_device_id(),
         .fw_ver = FW_VERSION,
     };

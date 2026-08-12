@@ -179,8 +179,46 @@ static void touch_task(void *arg)
     }
 }
 
+/* Set once the controller answers and the polling task is running. The
+ * handshake reports it, so a host can say "this board has no touch" instead of
+ * waiting for taps that cannot come. */
+static bool s_available;
+
+bool touch_available(void) { return s_available; }
+
+/* Logs every device that answers on the bus. Called only when the touch
+ * controller does not, because "touch init failed" on its own cannot tell a
+ * wiring fault from the wrong driver: a board with a GT911 (0x5d/0x14) or a
+ * CST816 (0x15) fails exactly like an absent FT6336 (0x38). The board has no
+ * UART attached in normal use, so this is the one chance to say what is there.
+ */
+static void scan_bus(i2c_master_bus_handle_t bus)
+{
+    int found = 0;
+    for (uint8_t addr = 0x08; addr < 0x78; addr++) {
+        if (i2c_master_probe(bus, addr, 50) == ESP_OK) {
+            ESP_LOGW(TAG, "  i2c device at 0x%02x", addr);
+            found++;
+        }
+    }
+    if (found == 0) {
+        ESP_LOGW(TAG, "  nothing answered on the i2c bus at all");
+    }
+}
+
 esp_err_t touch_init(i2c_master_bus_handle_t bus)
 {
+    /* Probe before handing the bus to the driver: esp_lcd_touch_new_i2c_ft6336
+     * reports a generic failure, and knowing whether 0x38 acked at all is the
+     * difference between a wiring problem and the wrong chip. */
+    const esp_err_t present = i2c_master_probe(bus, 0x38, 100);
+    if (present != ESP_OK) {
+        ESP_LOGW(TAG, "no FT6336 at 0x38 (%s) — scanning the bus:",
+                 esp_err_to_name(present));
+        scan_bus(bus);
+        return ESP_ERR_NOT_FOUND;
+    }
+
     esp_lcd_panel_io_i2c_config_t io_cfg = ESP_LCD_TOUCH_IO_I2C_FT6336_CONFIG();
     io_cfg.scl_speed_hz = 400 * 1000;
     esp_lcd_panel_io_handle_t io = NULL;
@@ -210,6 +248,7 @@ esp_err_t touch_init(i2c_master_bus_handle_t bus)
         xTaskCreatePinnedToCore(touch_task, "touch", 4096, NULL, 5, NULL, 0);
     ESP_RETURN_ON_FALSE(ok == pdPASS, ESP_ERR_NO_MEM, TAG, "touch task");
 
+    s_available = true;
     ESP_LOGI(TAG, "FT6336 up (%dx%d, %d Hz)", BOARD_LCD_H_RES, BOARD_LCD_V_RES,
              POLL_HZ);
     return ESP_OK;

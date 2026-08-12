@@ -20,6 +20,7 @@ type streamFlags struct {
 	seconds   *int
 	fill      *bool
 	landscape *bool
+	full      *bool
 }
 
 func (f streamFlags) mode() render.FitMode {
@@ -35,6 +36,7 @@ func addStreamFlags(fs *flag.FlagSet, defaultFPS int) streamFlags {
 		seconds:   fs.Int("seconds", 0, "stop after N seconds (0 = until Ctrl-C)"),
 		fill:      fs.Bool("fill", false, "cover the panel, cropping the overflow"),
 		landscape: fs.Bool("landscape", false, "rotate for a sideways-mounted panel"),
+		full:      fs.Bool("full", false, "send whole frames, no dirty-rect tiling"),
 	}
 }
 
@@ -42,6 +44,7 @@ func runBars(ctx context.Context, dev link, hello proto.Hello, args []string) er
 	fs := newFlags("bars")
 	fps := fs.Int("fps", 10, "frame rate cap")
 	seconds := fs.Int("seconds", 10, "stop after N seconds (0 = until Ctrl-C)")
+	full := fs.Bool("full", false, "send whole frames, no dirty-rect tiling")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -60,7 +63,9 @@ func runBars(ctx context.Context, dev link, hello proto.Hello, args []string) er
 	err = loop(ctx, *fps, *seconds, func() error {
 		px := render.ColorBars(hello.PanelW, hello.PanelH, phase)
 		phase += 4
-		st, serr := sender.Send(ctx, dev, px, false)
+		/* Tiling and RLE make a frame rate say more about the content than the
+		 * link, so -full measures the link itself: every frame whole. */
+		st, serr := sender.Send(ctx, dev, px, *full)
 		m.add(st)
 		return serr
 	})
@@ -177,7 +182,7 @@ func runFramebuffer(ctx context.Context, dev link, hello proto.Hello, args []str
 		if ferr != nil {
 			return ferr
 		}
-		st, serr := pipe.push(ctx, dev, frame, info.Stride)
+		st, serr := pipe.push(ctx, dev, frame, info.Stride, *sf.full)
 		m.add(st)
 		return serr
 	})
@@ -217,14 +222,14 @@ func newFramebufferPipeline(info fb.Info, hello proto.Hello, sf streamFlags) (*f
 	}, nil
 }
 
-func (p *framebufferPipeline) push(ctx context.Context, c proto.Conn, frame []byte, stride int) (proto.Stats, error) {
+func (p *framebufferPipeline) push(ctx context.Context, c proto.Conn, frame []byte, stride int, full bool) (proto.Stats, error) {
 	if err := p.conv.ToRGBA(frame, stride, p.rgba); err != nil {
 		return proto.Stats{}, err
 	}
 	if err := p.scaler.Render(p.rgba, p.px); err != nil {
 		return proto.Stats{}, err
 	}
-	return p.sender.Send(ctx, c, p.px, false)
+	return p.sender.Send(ctx, c, p.px, full)
 }
 
 // loop runs step at the requested rate until the deadline passes or the
