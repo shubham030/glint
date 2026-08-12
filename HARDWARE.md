@@ -98,6 +98,27 @@ bottleneck flips to USB, making RLE compression (fmt 1) near-mandatory.
 | PMU | AXP2101 @ 0x34 — rails must be enabled before the panel works (`power.cpp`, vendored XPowersLib, config verbatim from the factory demo) |
 | Pins | MOSI 1, SCLK 5, DC 3, BL 6 (LEDC); I2C SDA 8 / SCL 7; touch FT6336 @ 0x38 |
 
+## Touch mapping (measured)
+
+The FT6336 reports panel-native coordinates and the host applies orientation, so
+the mapping is a property of the board, not of the session. Measured on the P4
+(`glint touch --calibrate`, panel viewed in landscape):
+
+| tap | panel coords |
+|---|---|
+| top-left | (25, 453) |
+| top-right | (33, 24) |
+| bottom-left | (297, 449) |
+
+Moving right changes *y* by 429 and *x* by 8, so the glass's Y axis carries the
+screen's X and counts backwards:
+
+```sh
+glint display --touch --tp-swap --tp-flip-x
+```
+
+Recalibrate only if the panel is remounted or a different board is used.
+
 ## Boards ruled out
 
 - The ESP32-S3 on `/dev/cu.usbmodem2101` (when connected) is the **moth**

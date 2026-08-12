@@ -24,17 +24,12 @@ expectation is the honest one.
 | — | RGB565 RLE (fmt 1) | ✅ on by default; **7.9 MB/s, 25.7 fps** on the P4 |
 | — | Wi-Fi transport (TCP, no data cable) | ✅ P4 1.93 MB/s, 6.3 fps |
 | — | Second and third board (S3 SPI, S3 AMOLED) | ✅ one image, `menuconfig` picks the board |
-| M5 | Touch → cursor | ⚠️ written; **calibration never run on hardware** |
+| M5 | Touch → cursor | ✅ calibrated on the P4: `--tp-swap --tp-flip-x` |
 | — | Linux / Pi host | ✅ on a Pi 3: USB **49 fps**, Wi-Fi **32 fps**, console at 1:1 |
 | M6 | DSI panel swap | future ([DESIGN.md](DESIGN.md) §8) |
 
 Everything marked ⚠️ compiles and passes unit tests but has not touched
 hardware — the honest distinction, kept here deliberately.
-
-## What is left
-
-`glint touch --calibrate` has never been run: it wants three taps on a real
-panel and prints the `--tp-*` flags for that board.
 
 ## Quick start (macOS)
 
@@ -73,7 +68,7 @@ Other modes:
 
 ```sh
 glint display --portrait          # panel upright: 640×960 desktop
-glint display --touch             # also post touch as mouse events
+glint display --touch --tp-swap --tp-flip-x   # touch drives the cursor (P4 mapping)
 glint mirror --landscape          # mirror the main display instead
 glint image photo.heic --fill     # push one still
 glint bars --seconds 10           # transport test

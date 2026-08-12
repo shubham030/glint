@@ -24,3 +24,7 @@ glint_stream_stats_t *glint_stats(void);
  * but STATS callers must check the result: committing "reported" for an event
  * that never left would lose the loss report permanently. */
 bool usb_vendor_send_event(const glint_evt_t *evt);
+
+/* Sends an event to every live transport, USB and network. This is what event
+ * producers should call; the USB-only variant above is one half of it. */
+bool glint_event_broadcast(const glint_evt_t *evt);

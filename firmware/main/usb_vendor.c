@@ -240,12 +240,9 @@ static void stats_task(void *arg)
             .y = (uint16_t)(now.resyncs > 0xFFFF ? 0xFFFF : now.resyncs),
             .rsvd = 0,
         };
-        /* Either transport counts: the host may be on USB or on the
-         * network, and a report that reached neither must not be recorded. */
-        bool told = usb_vendor_send_event(&evt);
-#if CONFIG_GLINT_ENABLE_WIFI
-        told = net_send_event(&evt) || told;
-#endif
+        /* Either transport counts: a report that reached neither must not be
+         * recorded as sent. */
+        const bool told = glint_event_broadcast(&evt);
         if (told) {
             last = now;
         }
@@ -288,6 +285,23 @@ esp_err_t usb_vendor_init(QueueHandle_t tile_queue)
     ESP_LOGI(TAG, "vendor interface up (vid=%04x pid=%04x)", GLINT_USB_VID,
              GLINT_USB_PID);
     return ESP_OK;
+}
+
+bool glint_event_broadcast(const glint_evt_t *evt)
+{
+    /* Every event goes to both transports, because the host can be on either
+     * and the device does not know which. Touch used to call the USB-only
+     * sender directly, which made taps invisible to a network host while the
+     * panel and its controller were working perfectly — a failure that looks
+     * exactly like broken touch hardware.
+     *
+     * `||` is deliberately not short-circuiting the second send: the USB call
+     * must still run when the network one succeeds. */
+    bool told = usb_vendor_send_event(evt);
+#if CONFIG_GLINT_ENABLE_WIFI
+    told = net_send_event(evt) || told;
+#endif
+    return told;
 }
 
 bool usb_vendor_send_event(const glint_evt_t *evt)

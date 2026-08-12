@@ -108,7 +108,7 @@ static void emit(uint8_t type, uint8_t id, uint16_t x, uint16_t y)
         .y = y,
         .rsvd = 0,
     };
-    usb_vendor_send_event(&evt);
+    glint_event_broadcast(&evt);
 }
 
 static void touch_task(void *arg)
