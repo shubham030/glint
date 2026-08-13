@@ -57,3 +57,29 @@ func createVirtualDisplay(
 
     return (display, display.displayID)
 }
+
+/* The display exists only while something retains it, and nothing releases it
+ * when the process is signalled: Ctrl-C and `pkill` both leave WindowServer to
+ * reap the registration on its own schedule, which is what makes the *next*
+ * session fail to attach. Holding it here lets a signal handler drop it first. */
+private var heldDisplay: Any?
+private var teardownSources: [DispatchSourceSignal] = []
+
+/// Retains `display` for teardown on SIGINT/SIGTERM. Pass nil to release early.
+func holdVirtualDisplay(_ display: Any?) {
+    heldDisplay = display
+    guard display != nil, teardownSources.isEmpty else { return }
+    for sig in [SIGINT, SIGTERM] {
+        signal(sig, SIG_IGN) /* the dispatch source owns it now */
+        let source = DispatchSource.makeSignalSource(signal: sig, queue: .main)
+        source.setEventHandler {
+            heldDisplay = nil
+            /* Give WindowServer a moment to notice before the process is gone;
+             * exiting instantly is what leaves the registration behind. */
+            usleep(300_000)
+            exit(0)
+        }
+        source.resume()
+        teardownSources.append(source)
+    }
+}

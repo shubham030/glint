@@ -1,4 +1,5 @@
 import GlintCore
+import ApplicationServices
 import CoreGraphics
 import Foundation
 
@@ -58,6 +59,11 @@ func sendFullFrame(
 /// Run a capture session until Ctrl-C, or for --seconds if given.
 func runSession(_ session: MirrorSession, fps: Int, seconds: Int) async throws {
     try await session.start(fps: fps)
+    try await holdSession(session, seconds: seconds)
+}
+
+/// Keeps a started session running: for `seconds`, or until Ctrl-C.
+func holdSession(_ session: MirrorSession, seconds: Int) async throws {
     if seconds > 0 {
         try await Task.sleep(nanoseconds: UInt64(seconds) * 1_000_000_000)
         await session.stop()
@@ -205,11 +211,58 @@ do {
         let panelName =
             hello.devId != 0
             ? String(format: "glint %04x", hello.devId) : "glint"
-        guard
-            let (virtualDisplay, displayID) = createVirtualDisplay(
-                pointsW: pointsW, pointsH: pointsH, hiDPI: hiDPI,
-                name: panelName, serial: panelID)
-        else { fail("CGVirtualDisplay applySettings failed") }
+        /* WindowServer keys a virtual display on vendor/product/serial and does
+         * not always reap the previous session's registration before the next
+         * one starts — the display is then created (CGDisplayBounds even
+         * answers for it) but never comes online or appears in shareable
+         * content. A fresh display object after a pause gets through, so retry
+         * rather than exiting: the alternative is a session that dies for a
+         * reason the user cannot act on. */
+        var virtualDisplay: Any?
+        var displayID: CGDirectDisplayID = 0
+        var session: MirrorSession?
+        for attempt in 1...4 {
+            /* Vary the serial on retry. The conflict *is* the serial: reusing
+             * the one WindowServer is still holding fails identically every
+             * time. A different serial is a different display identity, so
+             * macOS forgets this panel's saved arrangement — worth it to get a
+             * working display, and it returns to the clean id next launch. */
+            guard
+                let (vd, did) = createVirtualDisplay(
+                    pointsW: pointsW, pointsH: pointsH, hiDPI: hiDPI,
+                    name: panelName,
+                    serial: panelID &+ UInt32(attempt - 1))
+            else { fail("CGVirtualDisplay applySettings failed") }
+            virtualDisplay = vd
+            displayID = did
+            holdVirtualDisplay(vd) /* released on SIGINT/SIGTERM */
+
+            let candidate = MirrorSession(
+                dev: dev, hello: hello, landscape: landscape,
+                displayID: did,
+                satPct: CommandLine.arguments.contains("--flat")
+                    ? 100 : argValue("--sat", default: 130),
+                conPct: CommandLine.arguments.contains("--flat")
+                    ? 100 : argValue("--con", default: 110),
+                fullFrames: CommandLine.arguments.contains("--full"))
+            do {
+                try await candidate.start(fps: fps)
+                session = candidate
+                break
+            } catch let error as NSError where error.domain == "glint" {
+                if attempt == 4 { fail(error.localizedDescription) }
+                print(
+                    "display \(did) did not attach (attempt \(attempt)) — "
+                        + "WindowServer is still holding that identity; "
+                        + "retrying with a different serial")
+                virtualDisplay = nil
+                holdVirtualDisplay(nil)
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+            }
+        }
+        guard let session, let virtualDisplay else {
+            fail("could not bring up a virtual display")
+        }
         print(
             "virtual display '\(panelName)' up: \(pointsW)x\(pointsH)"
                 + (hiDPI ? " @2x" : "") + " (id \(displayID))")
@@ -224,32 +277,47 @@ do {
                 + "mode \(m?.pixelWidth ?? 0)x\(m?.pixelHeight ?? 0) px")
         print("drag windows onto it; Ctrl-C removes it")
 
-        let flat = CommandLine.arguments.contains("--flat")
-        let session = MirrorSession(
-            dev: dev, hello: hello, landscape: landscape,
-            displayID: displayID,
-            satPct: flat ? 100 : argValue("--sat", default: 130),
-            conPct: flat ? 100 : argValue("--con", default: 110),
-            fullFrames: CommandLine.arguments.contains("--full"))
-
         /* The reader always runs: STATS events share this pipe, and if nobody
          * drains it the device's FIFO fills and dropped-tile reports never
          * arrive — which would silently disable resync. Posting touch as cursor
          * events is the opt-in part, because an uncalibrated mapping would
          * fling the cursor across the desktop. */
         let touchToCursor = CommandLine.arguments.contains("--touch")
+        /* Taps are mapped into this rect. A virtual display does not always
+         * enumerate for other processes, so print what we actually got: a zero
+         * rect would silently drop every tap at (0,0) instead of on the panel's
+         * own region, which is indistinguishable from "touch does nothing". */
+        let cursorBounds = CGDisplayBounds(displayID)
         let reader = TouchReader(
             dev: dev, hello: hello,
             mapping: TouchMapping.parse(CommandLine.arguments),
-            bounds: touchToCursor ? CGDisplayBounds(displayID) : nil,
+            bounds: touchToCursor ? cursorBounds : nil,
             raw: false, onDrops: { session.resync() })
         Thread { reader.run() }.start()
-        print(
-            touchToCursor
-                ? "touch → cursor enabled"
-                : "touch idle (pass --touch to move the cursor)")
+        if touchToCursor {
+            print(String(
+                format: "touch → cursor enabled, mapping onto (%.0f, %.0f) %.0fx%.0f",
+                cursorBounds.origin.x, cursorBounds.origin.y,
+                cursorBounds.width, cursorBounds.height))
+            if cursorBounds.width == 0 || cursorBounds.height == 0 {
+                print("warning: that display reports no bounds — taps cannot be placed")
+            }
+            /* Posting synthetic events needs Accessibility, which is a separate
+             * grant from Screen Recording: without it every tap is discarded
+             * silently, with nothing in any log to say so. */
+            if !AXIsProcessTrusted() {
+                print(
+                    "warning: this binary is not trusted for Accessibility, so "
+                        + "macOS will DISCARD every synthetic click.\n"
+                        + "         System Settings → Privacy & Security → "
+                        + "Accessibility → add:\n         "
+                        + CommandLine.arguments[0])
+            }
+        } else {
+            print("touch idle (pass --touch to move the cursor)")
+        }
 
-        try await runSession(session, fps: fps, seconds: seconds)
+        try await holdSession(session, seconds: seconds)
         _ = virtualDisplay /* keep the display alive for the session */
 
     case "mirror":

@@ -98,6 +98,20 @@ bottleneck flips to USB, making RLE compression (fmt 1) near-mandatory.
 | PMU | AXP2101 @ 0x34 — rails must be enabled before the panel works (`power.cpp`, vendored XPowersLib, config verbatim from the factory demo) |
 | Pins | MOSI 1, SCLK 5, DC 3, BL 6 (LEDC); I2C SDA 8 / SCL 7; touch FT6336 @ 0x38 |
 
+## Flashing the P4 needs the UART port
+
+`glint bootloader` cannot help on this board. Its OTG Type-C is wired to the
+**UTMI (high-speed) PHY** — the boot log says so outright, `usb_phy: Using UTMI
+PHY instead of requested internal PHY` — while USB-Serial-JTAG needs the
+internal FS PHY. So no serial device can ever appear on the data port, and
+honouring a bootloader request there produces a board that is neither a working
+panel nor flashable until it is power-cycled. The firmware now refuses the
+request on this board (`BOARD_CAN_SERIAL_BOOT 0`) and says why in the log.
+
+Flash over the second Type-C (CH343 UART), which on macOS appears as
+`/dev/cu.usbmodem*` and answers `esptool chip_id`. The S3 boards have one data
+port muxed to USB-Serial-JTAG, so `glint bootloader` does work there.
+
 ## Touch mapping (measured)
 
 The FT6336 reports panel-native coordinates and the host applies orientation, so
@@ -116,6 +130,10 @@ screen's X and counts backwards:
 ```sh
 glint display --touch --tp-swap --tp-flip-x
 ```
+
+Verified end to end: taps post real `leftMouseDown`/`leftMouseUp` pairs at
+coordinates inside the panel's own region of the desktop (corner taps at
+(-946, 88), centre at (-553, 333) for a display at (-960, 0) 960x640).
 
 Recalibrate only if the panel is remounted or a different board is used.
 

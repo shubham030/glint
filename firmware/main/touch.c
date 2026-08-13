@@ -208,17 +208,6 @@ static void scan_bus(i2c_master_bus_handle_t bus)
 
 esp_err_t touch_init(i2c_master_bus_handle_t bus)
 {
-    /* Probe before handing the bus to the driver: esp_lcd_touch_new_i2c_ft6336
-     * reports a generic failure, and knowing whether 0x38 acked at all is the
-     * difference between a wiring problem and the wrong chip. */
-    const esp_err_t present = i2c_master_probe(bus, 0x38, 100);
-    if (present != ESP_OK) {
-        ESP_LOGW(TAG, "no FT6336 at 0x38 (%s) — scanning the bus:",
-                 esp_err_to_name(present));
-        scan_bus(bus);
-        return ESP_ERR_NOT_FOUND;
-    }
-
     esp_lcd_panel_io_i2c_config_t io_cfg = ESP_LCD_TOUCH_IO_I2C_FT6336_CONFIG();
     io_cfg.scl_speed_hz = 400 * 1000;
     esp_lcd_panel_io_handle_t io = NULL;
@@ -241,8 +230,18 @@ esp_err_t touch_init(i2c_master_bus_handle_t bus)
             .mirror_y = 0,
         },
     };
-    ESP_RETURN_ON_ERROR(esp_lcd_touch_new_i2c_ft6336(io, &cfg, &s_tp), TAG,
-                        "ft6336");
+    /* The driver drives RST and gives the controller time to come up, so it
+     * must run before any probing: gating on a bare i2c probe first skipped a
+     * chip that only answers *after* its reset pulse, and reported perfectly
+     * good touch hardware as absent. Diagnose only once this has really
+     * failed. */
+    const esp_err_t err = esp_lcd_touch_new_i2c_ft6336(io, &cfg, &s_tp);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "FT6336 init failed (%s) — scanning the i2c bus:",
+                 esp_err_to_name(err));
+        scan_bus(bus);
+        return err;
+    }
 
     const BaseType_t ok =
         xTaskCreatePinnedToCore(touch_task, "touch", 4096, NULL, 5, NULL, 0);

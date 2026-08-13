@@ -24,7 +24,7 @@ expectation is the honest one.
 | — | RGB565 RLE (fmt 1) | ✅ on by default; **7.9 MB/s, 25.7 fps** on the P4 |
 | — | Wi-Fi transport (TCP, no data cable) | ✅ P4 1.93 MB/s, 6.3 fps |
 | — | Second board: S3 AMOLED 1.75" (CO5300 QSPI, 466×466) | ✅ one image, `menuconfig` picks the board |
-| M5 | Touch → cursor | ✅ calibrated on the P4: `--tp-swap --tp-flip-x` |
+| M5 | Touch → cursor | ✅ real clicks land on the panel's region: `--tp-swap --tp-flip-x` |
 | — | Linux / Pi host | ✅ on a Pi 3: USB **49 fps**, Wi-Fi **32 fps**, console at 1:1 |
 | — | S3 3.5" SPI board profile | ⚠️ builds, **no such board here to run it on** |
 | — | Touch on the AMOLED | ⚠️ no CST9217 driver; it reports `touch=0pt`, honestly |
@@ -200,4 +200,9 @@ What the encoding does to a frame, on the P4 (USB high speed, ST7796 SPI at
   firmware is the untried fix at the source.
 - **`CGVirtualDisplay` is private API.** It can break on any macOS update. This
   is the deal for every virtual-display tool on macOS.
+- **WindowServer keys a virtual display on vendor/product/serial** and does not
+  reliably reap the previous session's registration. The new display is then
+  created — `CGDisplayBounds` even answers for it — but never comes online or
+  appears in shareable content. `glint display` retries with a varied serial
+  rather than exiting; a retry costs that panel's saved arrangement.
 - **Screen Recording permission** is required, and the purple indicator stays on.

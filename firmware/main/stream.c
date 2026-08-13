@@ -127,13 +127,23 @@ bool glint_stream_serve_request(const glint_stream_io_t *io,
         lcd_sleep(req->value != 0);
         return true;
     case GLINT_CMD_BOOTLOADER:
-        /* This board has no UART bridge, so without this a reflash means
-         * physically holding BOOT while tapping RESET. Forcing the download
-         * strap in RTC and restarting gets there from software. */
+#if BOARD_CAN_SERIAL_BOOT
+        /* On a board whose single data port can be muxed to USB-Serial-JTAG,
+         * this removes the BOOT-button dance: reflashing otherwise means
+         * physically holding BOOT while tapping RESET. */
         ESP_LOGW(TAG, "rebooting into the download loader on request");
         vTaskDelay(pdMS_TO_TICKS(50)); /* let the reply/log drain first */
         glint_reboot_to_loader();
         return true;
+#else
+        /* Refusing is the kind thing to do. Rebooting here would leave a board
+         * that is neither a working panel nor flashable — the data port is on
+         * the high-speed PHY, so no serial device can appear on it, and only a
+         * power cycle clears the one-shot flag. Use the UART port instead. */
+        ESP_LOGW(TAG, "ignoring bootloader request: this board has no "
+                      "USB-Serial-JTAG on the data port — flash over UART");
+        return false;
+#endif
     default:
         ESP_LOGW(TAG, "unknown in-band request 0x%02x", req->cmd);
         return false;

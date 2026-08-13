@@ -35,6 +35,10 @@
 
 /* FT6336 on the shared ESP_I2C bus (schematic: TP_SDA/TP_SCL/TP_RST/TP_INT) */
 #define BOARD_HAS_FT6336  1
+/* The OTG Type-C is wired to the UTMI (high-speed) PHY, and USB-Serial-JTAG
+ * needs the internal FS PHY, so no serial device can appear on the data port.
+ * This board is flashed over its separate UART Type-C (CH343) instead. */
+#define BOARD_CAN_SERIAL_BOOT 0
 #define BOARD_PIN_I2C_SDA GPIO_NUM_7
 #define BOARD_PIN_I2C_SCL GPIO_NUM_8
 #define BOARD_PIN_TP_RST  GPIO_NUM_29
@@ -63,6 +67,8 @@
 #define BOARD_HAS_FT6336  1
 #define BOARD_PIN_I2C_SDA GPIO_NUM_8
 #define BOARD_PIN_I2C_SCL GPIO_NUM_7
+/* One data port, muxed to USB-Serial-JTAG on request: the handover works. */
+#define BOARD_CAN_SERIAL_BOOT 1
 #define BOARD_PIN_TP_RST  GPIO_NUM_NC
 #define BOARD_PIN_TP_INT  GPIO_NUM_NC
 
@@ -96,6 +102,7 @@
 
 /* CST9217 touch — not wired up yet; rivo has a patched multi-touch driver. */
 #define BOARD_HAS_FT6336  0
+#define BOARD_CAN_SERIAL_BOOT 1
 #define BOARD_PIN_I2C_SDA GPIO_NUM_15
 #define BOARD_PIN_I2C_SCL GPIO_NUM_14
 #define BOARD_PIN_TP_RST  GPIO_NUM_40
