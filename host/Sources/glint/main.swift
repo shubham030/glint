@@ -218,7 +218,9 @@ do {
          * content. A fresh display object after a pause gets through, so retry
          * rather than exiting: the alternative is a session that dies for a
          * reason the user cannot act on. */
-        var virtualDisplay: Any?
+        /* The display is owned solely by holdVirtualDisplay: a strong reference
+         * here would outlive the signal handler's release and keep the
+         * registration alive past exit, which is the race being avoided. */
         var displayID: CGDirectDisplayID = 0
         var session: MirrorSession?
         for attempt in 1...4 {
@@ -233,9 +235,8 @@ do {
                     name: panelName,
                     serial: panelID &+ UInt32(attempt - 1))
             else { fail("CGVirtualDisplay applySettings failed") }
-            virtualDisplay = vd
             displayID = did
-            holdVirtualDisplay(vd) /* released on SIGINT/SIGTERM */
+            holdVirtualDisplay(vd) /* sole owner; released on SIGINT/SIGTERM */
 
             let candidate = MirrorSession(
                 dev: dev, hello: hello, landscape: landscape,
@@ -255,14 +256,11 @@ do {
                     "display \(did) did not attach (attempt \(attempt)) — "
                         + "WindowServer is still holding that identity; "
                         + "retrying with a different serial")
-                virtualDisplay = nil
                 holdVirtualDisplay(nil)
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
             }
         }
-        guard let session, let virtualDisplay else {
-            fail("could not bring up a virtual display")
-        }
+        guard let session else { fail("could not bring up a virtual display") }
         print(
             "virtual display '\(panelName)' up: \(pointsW)x\(pointsH)"
                 + (hiDPI ? " @2x" : "") + " (id \(displayID))")
@@ -318,7 +316,6 @@ do {
         }
 
         try await holdSession(session, seconds: seconds)
-        _ = virtualDisplay /* keep the display alive for the session */
 
     case "mirror":
         let fps = max(1, argValue("--fps", default: 12))
