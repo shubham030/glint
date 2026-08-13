@@ -74,7 +74,8 @@ func holdSession(_ session: MirrorSession, seconds: Int) async throws {
     }
 }
 
-let mode = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "bars"
+let opts = Options(CommandLine.arguments)
+let mode = opts.mode
 
 /* Runs before any device is opened: it reports on a missing panel rather than
  * failing on one. */
@@ -85,7 +86,7 @@ if mode == "doctor" {
 /* Every panel reachable right now, on either transport. With more than one
  * attached the firmware's fixed serial number cannot distinguish them, so list
  * bus/address and let the caller pick with --dev. */
-if CommandLine.arguments.contains("--list") {
+if opts.list {
     let usb = (try? USBDevice.list(vid: Glint.vid, pid: Glint.pid)) ?? []
     for (i, d) in usb.enumerated() {
         print("USB      --dev \(i): \(d.description)")
@@ -108,27 +109,25 @@ if CommandLine.arguments.contains("--list") {
 /// Long-running modes wait for the panel; one-shot commands fail fast.
 let sessionModes: Set<String> = ["display", "mirror", "touch", "stats"]
 let waitForDevice =
-    sessionModes.contains(mode) && !CommandLine.arguments.contains("--no-wait")
+    sessionModes.contains(mode) && !opts.noWait
 
 /* Where to look for a panel. The default is "wherever it is": USB when a cable
  * is in, otherwise the first panel answering on the network. `--net <host>`
  * names one explicitly, `--net` alone means wireless-only, `--usb` the reverse.
  * Everything above the Link protocol is identical either way. */
-func linkChoice() -> LinkChoice {
-    if CommandLine.arguments.contains("--usb") { return .usbOnly }
-    guard let i = CommandLine.arguments.firstIndex(of: "--net") else {
-        return .auto
+func linkChoice(_ opts: Options) -> LinkChoice {
+    if opts.usbOnly { return .usbOnly }
+    switch opts.netHost {
+    case nil: return .auto
+    case "auto": return .netOnly
+    case let host?: return .host(host)
     }
-    let next = i + 1 < CommandLine.arguments.count
-        ? CommandLine.arguments[i + 1] : "auto"
-    return (next == "auto" || next.hasPrefix("--")) ? .netOnly : .host(next)
 }
 
 do {
     let dev = try openPanel(
-        linkChoice(), wait: waitForDevice,
-        devIndex: argValue("--dev", default: 0),
-        port: UInt16(argValue("--port", default: GlintNetPort)))
+        linkChoice(opts), wait: waitForDevice, devIndex: opts.devIndex,
+        serial: opts.serial, port: UInt16(opts.port))
     let hello = try dev.handshake()
     let fw = String(format: "%08x", hello.fwVer)
     print(
@@ -142,8 +141,7 @@ do {
         exit(0)
 
     case "backlight":
-        guard CommandLine.arguments.count > 2,
-            let v = UInt16(CommandLine.arguments[2]), v <= 255
+        guard let raw = opts.positional.first, let v = UInt16(raw), v <= 255
         else { fail("usage: glint backlight <0-255>") }
         try dev.control(.backlight, value: v)
 
@@ -153,19 +151,16 @@ do {
         print("device rebooting into its download loader — flash now")
 
     case "sleep":
-        guard CommandLine.arguments.count > 2,
-            let v = UInt16(CommandLine.arguments[2]), v <= 1
+        guard let raw = opts.positional.first, let v = UInt16(raw), v <= 1
         else { fail("usage: glint sleep <0|1>") }
         try dev.control(.sleep, value: v)
 
     case "image":
-        guard CommandLine.arguments.count > 2 else {
+        guard let path = opts.positional.first else {
             fail("usage: glint image <path> [--fill] [--landscape]")
         }
-        let path = CommandLine.arguments[2]
-        let mode: FitMode =
-            CommandLine.arguments.contains("--fill") ? .fill : .fit
-        let landscape = CommandLine.arguments.contains("--landscape")
+        let mode: FitMode = opts.fill ? .fill : .fit
+        let landscape = opts.landscape
         guard
             let px = loadImageRGB565(
                 path: path, width: hello.panelW, height: hello.panelH,
@@ -179,170 +174,29 @@ do {
         print("sent \(path) (\(n) bytes on the wire)")
 
     case "display":
-        /* Tiles make a typical frame ~18KB, so a higher cap costs little and
-         * cuts latency for small changes; a full-screen change still
-         * self-limits on the SPI bus because the send is synchronous. */
-        let tiled = !CommandLine.arguments.contains("--full")
-        let fps = max(1, argValue("--fps", default: tiled ? 30 : 12))
-        let seconds = argValue("--seconds", default: 0) /* 0 = until ^C */
-        let landscape = !CommandLine.arguments.contains("--portrait")
-        /* Default 2× backing: WindowServer coerces a literal 480×320 mode
-         * down to 240×160 (observed on macOS 26.5), and 960×640 gives a
-         * desktop real windows actually fit on. --1x tries panel-native;
-         * --width/--height override for experimentation. */
-        let hiDPI = !CommandLine.arguments.contains("--1x")
-        /* The virtual desktop is the panel as the viewer sees it. */
-        var pointsW = landscape ? hello.panelH : hello.panelW
-        var pointsH = landscape ? hello.panelW : hello.panelH
-        let ow = argValue("--width", default: 0)
-        let oh = argValue("--height", default: 0)
-        if ow > 0 && oh > 0 {
-            pointsW = ow
-            pointsH = oh
-        }
-        /* Identify the virtual display by the panel's own id, not by transport
-         * position. WindowServer keys on vendor/product/serial: two panels
-         * sharing a triple means the second display is created but never
-         * becomes visible to ScreenCaptureKit, and a stale registration from an
-         * earlier session blocks a new one the same way. */
-        let panelID =
-            hello.devId != 0
-            ? UInt32(hello.devId) : UInt32(1 + argValue("--dev", default: 0))
-        let panelName =
-            hello.devId != 0
-            ? String(format: "glint %04x", hello.devId) : "glint"
-        /* WindowServer keys a virtual display on vendor/product/serial and does
-         * not always reap the previous session's registration before the next
-         * one starts — the display is then created (CGDisplayBounds even
-         * answers for it) but never comes online or appears in shareable
-         * content. A fresh display object after a pause gets through, so retry
-         * rather than exiting: the alternative is a session that dies for a
-         * reason the user cannot act on. */
-        /* The display is owned solely by holdVirtualDisplay: a strong reference
-         * here would outlive the signal handler's release and keep the
-         * registration alive past exit, which is the race being avoided. */
-        var displayID: CGDirectDisplayID = 0
-        var session: MirrorSession?
-        for attempt in 1...4 {
-            /* Vary the serial on retry. The conflict *is* the serial: reusing
-             * the one WindowServer is still holding fails identically every
-             * time. A different serial is a different display identity, so
-             * macOS forgets this panel's saved arrangement — worth it to get a
-             * working display, and it returns to the clean id next launch. */
-            guard
-                let (vd, did) = createVirtualDisplay(
-                    pointsW: pointsW, pointsH: pointsH, hiDPI: hiDPI,
-                    name: panelName,
-                    serial: panelID &+ UInt32(attempt - 1))
-            else { fail("CGVirtualDisplay applySettings failed") }
-            displayID = did
-            holdVirtualDisplay(vd) /* sole owner; released on SIGINT/SIGTERM */
-
-            let candidate = MirrorSession(
-                dev: dev, hello: hello, landscape: landscape,
-                displayID: did,
-                satPct: CommandLine.arguments.contains("--flat")
-                    ? 100 : argValue("--sat", default: 130),
-                conPct: CommandLine.arguments.contains("--flat")
-                    ? 100 : argValue("--con", default: 110),
-                fullFrames: CommandLine.arguments.contains("--full"))
-            do {
-                try await candidate.start(fps: fps)
-                session = candidate
-                break
-            } catch let error as NSError where error.domain == "glint" {
-                if attempt == 4 { fail(error.localizedDescription) }
-                print(
-                    "display \(did) did not attach (attempt \(attempt)) — "
-                        + "WindowServer is still holding that identity; "
-                        + "retrying with a different serial")
-                holdVirtualDisplay(nil)
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
-            }
-        }
-        guard let session else { fail("could not bring up a virtual display") }
-        print(
-            "virtual display '\(panelName)' up: \(pointsW)x\(pointsH)"
-                + (hiDPI ? " @2x" : "") + " (id \(displayID))")
-        /* NOTE (macOS 26.5): WindowServer refuses desktops under ~800 px
-         * wide — sub-800 modes are halved and CGDisplaySetDisplayMode to the
-         * exact mode fails (1001). 960×640 (2:1) and 800×534 (1.67:1) are
-         * the workable sizes; panel-native 480×320 is not possible. */
-        let b = CGDisplayBounds(displayID)
-        let m = CGDisplayCopyDisplayMode(displayID)
-        print(
-            "desktop \(Int(b.width))x\(Int(b.height)) pt, "
-                + "mode \(m?.pixelWidth ?? 0)x\(m?.pixelHeight ?? 0) px")
-        print("drag windows onto it; Ctrl-C removes it")
-
-        /* The reader always runs: STATS events share this pipe, and if nobody
-         * drains it the device's FIFO fills and dropped-tile reports never
-         * arrive — which would silently disable resync. Posting touch as cursor
-         * events is the opt-in part, because an uncalibrated mapping would
-         * fling the cursor across the desktop. */
-        let touchToCursor = CommandLine.arguments.contains("--touch")
-        /* Taps are mapped into this rect. A virtual display does not always
-         * enumerate for other processes, so print what we actually got: a zero
-         * rect would silently drop every tap at (0,0) instead of on the panel's
-         * own region, which is indistinguishable from "touch does nothing". */
-        let cursorBounds = CGDisplayBounds(displayID)
-        let reader = TouchReader(
-            dev: dev, hello: hello,
-            mapping: TouchMapping.parse(CommandLine.arguments),
-            bounds: touchToCursor ? cursorBounds : nil,
-            raw: false, onDrops: { session.resync() })
-        Thread { reader.run() }.start()
-        if touchToCursor {
-            print(String(
-                format: "touch → cursor enabled, mapping onto (%.0f, %.0f) %.0fx%.0f",
-                cursorBounds.origin.x, cursorBounds.origin.y,
-                cursorBounds.width, cursorBounds.height))
-            if cursorBounds.width == 0 || cursorBounds.height == 0 {
-                print("warning: that display reports no bounds — taps cannot be placed")
-            }
-            /* Posting synthetic events needs Accessibility, which is a separate
-             * grant from Screen Recording: without it every tap is discarded
-             * silently, with nothing in any log to say so. */
-            if !AXIsProcessTrusted() {
-                print(
-                    "warning: this binary is not trusted for Accessibility, so "
-                        + "macOS will DISCARD every synthetic click.\n"
-                        + "         System Settings → Privacy & Security → "
-                        + "Accessibility → add:\n         "
-                        + CommandLine.arguments[0])
-            }
-        } else {
-            print("touch idle (pass --touch to move the cursor)")
-        }
-
-        try await holdSession(session, seconds: seconds)
+        try await runDisplay(dev: dev, hello: hello, opts: opts)
 
     case "mirror":
-        let fps = max(1, argValue("--fps", default: 12))
-        let seconds = argValue("--seconds", default: 0)
-        let landscape = CommandLine.arguments.contains("--landscape")
         let session = MirrorSession(
-            dev: dev, hello: hello, landscape: landscape,
-            fullFrames: CommandLine.arguments.contains("--full"))
+            dev: dev, hello: hello, landscape: opts.landscape,
+            fullFrames: opts.full)
         /* Drain STATS so dropped tiles still trigger a resync here too. */
         let reader = TouchReader(
             dev: dev, hello: hello, mapping: TouchMapping(),
             bounds: nil, raw: false, onDrops: { session.resync() })
         Thread { reader.run() }.start()
-        try await runSession(session, fps: fps, seconds: seconds)
+        try await runSession(
+            session, fps: opts.frameRate(default: 12), seconds: opts.seconds)
 
     case "touch":
-        if CommandLine.arguments.contains("--calibrate") {
-            calibrateTouch(
-                dev: dev, hello: hello,
-                landscape: !CommandLine.arguments.contains("--portrait"))
+        if opts.calibrate {
+            calibrateTouch(dev: dev, hello: hello)
             exit(0)
         }
         /* Raw mode: prints panel coords so the mapping can be checked by eye. */
         let reader = TouchReader(
             dev: dev, hello: hello,
-            mapping: TouchMapping.parse(CommandLine.arguments),
-            bounds: nil, raw: true)
+            mapping: opts.mapping, bounds: nil, raw: true)
         print("tap the panel — Ctrl-C to stop")
         reader.run()
 

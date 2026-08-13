@@ -59,8 +59,11 @@ func runDoctor() {
             + "enable your terminal")
 
     // 4. The private API is the fragile part; prove it still works.
+    /* Same call a session makes, with a serial no panel can claim, so this
+     * proves the path the display actually uses rather than a parallel one. */
     if let (display, id) = createVirtualDisplay(
-        pointsW: 960, pointsH: 640, hiDPI: false, name: "glint-doctor")
+        pointsW: 960, pointsH: 640, hiDPI: false, name: "glint-doctor",
+        serial: 0xD0C7)
     {
         let bounds = CGDisplayBounds(id)
         report(true, "CGVirtualDisplay works (id \(id))")

@@ -37,33 +37,6 @@ struct TouchEvent {
     }
 }
 
-/// How panel coordinates map onto the display's own axes. Which combination is
-/// right depends on how the touch glass is wired relative to the panel scan
-/// direction, so it is calibrated by tapping known corners, not derived.
-struct TouchMapping {
-    var swapXY = false
-    var flipX = false
-    var flipY = false
-
-    static func parse(_ args: [String]) -> TouchMapping {
-        TouchMapping(
-            swapXY: args.contains("--tp-swap"),
-            flipX: args.contains("--tp-flip-x"),
-            flipY: args.contains("--tp-flip-y"))
-    }
-
-    /// Panel coords → a unit position on the display, honouring the mapping.
-    func unit(x: Int, y: Int, panelW: Int, panelH: Int) -> (u: Double, v: Double)
-    {
-        var u = Double(x) / Double(max(1, panelW - 1))
-        var v = Double(y) / Double(max(1, panelH - 1))
-        if swapXY { swap(&u, &v) }
-        if flipX { u = 1 - u }
-        if flipY { v = 1 - v }
-        return (u, v)
-    }
-}
-
 /// Drains touch events and either prints them (calibration) or posts synthetic
 /// mouse events onto the target display.
 final class TouchReader {

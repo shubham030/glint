@@ -59,7 +59,7 @@ make panels                              # every panel reachable, both transport
 make display-wifi                        # wireless only, auto-picked
 make display-wifi PANEL=glint-335b.local # wireless, that board
 glint display --usb                      # USB only
-glint display --dev 1                     # the second panel on USB
+glint display --serial glint-335b         # that board, on either transport
 ```
 
 `glint --list` marks a panel already serving another session as *in use*, since
@@ -134,7 +134,7 @@ packaging/            LaunchAgent for login start, udev rule for usbfs
 ## Verification without hardware
 
 ```sh
-make test        # 23 Swift unit tests + C decoder tests + 6 Go packages
+make test        # 39 Swift unit tests + C decoder tests + 6 Go packages
 ```
 
 All three RLE implementations are pinned to each other by a shared fixture:

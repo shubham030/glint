@@ -40,6 +40,22 @@ func addStreamFlags(fs *flag.FlagSet, defaultFPS int) streamFlags {
 	}
 }
 
+// streamOf prepares a sender and drops whatever the device still had queued,
+// which every streaming mode needs before its first frame. The three modes had
+// their own copies of this, which is how they drifted: -full reached bars long
+// before it reached fb.
+func streamOf(dev link, hello proto.Hello, label string) (*proto.TileSender, *meter, error) {
+	sender, err := proto.NewTileSender(hello, proto.Options{})
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := dev.ControlWrite(proto.CmdReset, 0); err != nil {
+		return nil, nil, err
+	}
+	fmt.Printf("%s: %s\n", label, sender.Grid())
+	return sender, newMeter(), nil
+}
+
 func runBars(ctx context.Context, dev link, hello proto.Hello, args []string) error {
 	fs := newFlags("bars")
 	fps := fs.Int("fps", 10, "frame rate cap")
@@ -49,16 +65,10 @@ func runBars(ctx context.Context, dev link, hello proto.Hello, args []string) er
 		return err
 	}
 
-	sender, err := proto.NewTileSender(hello, proto.Options{})
+	sender, m, err := streamOf(dev, hello, "bars")
 	if err != nil {
 		return err
 	}
-	if err := dev.ControlWrite(proto.CmdReset, 0); err != nil {
-		return err
-	}
-	fmt.Printf("bars: %s\n", sender.Grid())
-
-	m := newMeter()
 	phase := 0
 	err = loop(ctx, *fps, *seconds, func() error {
 		px := render.ColorBars(hello.PanelW, hello.PanelH, phase)
@@ -98,11 +108,8 @@ func runImage(ctx context.Context, dev link, hello proto.Hello, args []string) e
 		return err
 	}
 
-	sender, err := proto.NewTileSender(hello, proto.Options{})
+	sender, _, err := streamOf(dev, hello, "image")
 	if err != nil {
-		return err
-	}
-	if err := dev.ControlWrite(proto.CmdReset, 0); err != nil {
 		return err
 	}
 	st, err := sender.Send(ctx, dev, px, true)
@@ -153,6 +160,9 @@ func runFramebuffer(ctx context.Context, dev link, hello proto.Hello, args []str
 
 	pipe, err := newFramebufferPipeline(info, hello, sf)
 	if err != nil {
+		return err
+	}
+	if err := dev.ControlWrite(proto.CmdReset, 0); err != nil {
 		return err
 	}
 	fmt.Printf("mirroring: %s\n", pipe.sender.Grid())

@@ -46,6 +46,7 @@ enum NetError: Error, CustomStringConvertible {
     case badHello
     case noPanelAnywhere
     case allBusy([String])
+    case namedPanelMissing(String)
 
     var description: String {
         switch self {
@@ -55,6 +56,11 @@ enum NetError: Error, CustomStringConvertible {
                 up but already serving a client — the panel takes one at a time. \
                 Stop the other glint session (`pkill -f "glint display"`) or \
                 plug in over USB.
+                """
+        case let .namedPanelMissing(name):
+            return """
+                no panel called \(name) — not on USB, and \(name).local does \
+                not answer. `glint --list` shows what is actually here.
                 """
         case .noPanelAnywhere:
             return """
@@ -203,10 +209,31 @@ enum LinkChoice: Equatable {
 /// login agent work for both transports.
 func openPanel(
     _ choice: LinkChoice, wait: Bool, devIndex: Int = 0,
-    port: UInt16 = UInt16(GlintNetPort)
+    serial: String? = nil, port: UInt16 = UInt16(GlintNetPort)
 ) throws -> Link {
     if case let .host(h) = choice {
         return try NetLink(host: h, port: port)
+    }
+
+    /* A named board is a promise: find *that* panel or fail. Falling through to
+     * whatever else is around would silently put the desktop on the wrong
+     * screen, which is worse than an error. The name works on either transport,
+     * since the USB serial and the mDNS host are both `glint-<id>`. */
+    if let wanted = serial {
+        if choice != .netOnly,
+            let all = try? USBDevice.list(vid: Glint.vid, pid: Glint.pid),
+            let index = all.firstIndex(where: { $0.serial == wanted })
+        {
+            return try USBDevice.open(
+                vid: Glint.vid, pid: Glint.pid, waitForDevice: false,
+                index: index)
+        }
+        if choice != .usbOnly,
+            let link = try? NetLink(host: "\(wanted).local", port: port)
+        {
+            return link
+        }
+        throw NetError.namedPanelMissing(wanted)
     }
 
     var announcedWait = false
@@ -265,7 +292,9 @@ func isLinkGone(_ error: Error) -> Bool {
     if let usb = error as? USBError { return usb.isDisconnect }
     if let net = error as? NetError {
         switch net {
-        case .closed, .connect, .noPanelAnywhere, .allBusy: return true
+        case .closed, .connect, .noPanelAnywhere, .allBusy,
+            .namedPanelMissing:
+            return true
         case .badHello: return false
         }
     }
