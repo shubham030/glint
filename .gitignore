@@ -21,6 +21,9 @@ firmware/sdkconfig.s3.old
 firmware/sdkconfig.amoled
 firmware/sdkconfig.amoled.old
 firmware/sdkconfig.local
+firmware/sdkconfig.custom*
+# Wi-Fi credentials, written by tools/setup.sh
+firmware/sdkconfig.wifi.defaults
 
 # Cross-compiled Go hosts (make pi)
 linux/glint-pi-*

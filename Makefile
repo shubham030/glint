@@ -2,9 +2,13 @@ IDF_EXPORT := source $(HOME)/esp/esp-idf-v5.5/export.sh >/dev/null 2>&1
 PORT ?= $(shell ls /dev/cu.usbmodem* 2>/dev/null | head -1)
 GLINT := ./host/.build/release/glint
 
-.PHONY: all fw host test test-host test-fw test-go flash monitor \
+.PHONY: setup all fw host test test-host test-fw test-go flash monitor \
         display display-portrait display-wifi panels mirror bars hello stats \
         calibrate pi install-agent uninstall-agent clean fw-amoled flash-amoled
+
+# Guided first run: finds the board, picks a profile, builds, flashes, starts.
+setup:
+	@./tools/setup.sh
 
 all: fw host
 

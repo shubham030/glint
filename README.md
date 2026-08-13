@@ -43,8 +43,17 @@ ESP-IDF v5.5 builds the firmware; the Makefile expects it at
 virtual-display behaviour described below was observed on macOS 26.5.
 
 ```sh
+make setup      # guided: finds the board, builds, flashes, starts a display
+```
+
+`make setup` identifies the chip on a serial port, suggests the matching board
+profile, offers to configure Wi-Fi, then builds and flashes. It prints every
+command it runs, and keeps an existing configuration rather than overwriting it,
+so re-running is safe. The individual steps, if you prefer them:
+
+```sh
 make            # build firmware + host
-make flash      # flash the panel over its UART port
+make flash      # flash the panel over its UART port (PORT=… to choose one)
 make display    # extended desktop on the panel
 ```
 
