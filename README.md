@@ -23,11 +23,11 @@ expectation is the honest one.
 | M4 | Dirty-rect tiling | ✅ **300 KB → 18 KB per frame** (16.6×) |
 | — | RGB565 RLE (fmt 1) | ✅ on by default; **7.9 MB/s, 25.7 fps** on the P4 |
 | — | Wi-Fi transport (TCP, no data cable) | ✅ P4 1.93 MB/s, 6.3 fps |
-| — | Second board: S3 AMOLED 1.75" (CO5300 QSPI, 466×466) | ✅ one image, `menuconfig` picks the board |
+| — | Second board: S3 AMOLED 1.75" (CO5300 QSPI, 466×466) | ✅ one image, `menuconfig` picks the board; touch included |
 | M5 | Touch → cursor | ✅ real clicks land on the panel's region: `--tp-swap --tp-flip-x` |
 | — | Linux / Pi host | ✅ on a Pi 3: USB **49 fps**, Wi-Fi **32 fps**, console at 1:1 |
 | — | S3 3.5" SPI board profile | ⚠️ builds, **no such board here to run it on** |
-| — | Touch on the AMOLED | ⚠️ no CST9217 driver; it reports `touch=0pt`, honestly |
+| — | Touch on the AMOLED | ✅ CST9217 via Waveshare's driver: `--tp-swap --tp-flip-y` |
 | — | Windows host | ⚠️ not started; needs MS OS 2.0 descriptors so WinUSB binds |
 | M6 | DSI panel swap | future ([DESIGN.md](DESIGN.md) §8) |
 

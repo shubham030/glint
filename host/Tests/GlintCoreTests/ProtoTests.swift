@@ -92,3 +92,28 @@ final class ProtoTests: XCTestCase {
         XCTAssertNotEqual(Array(px.prefix(320)), Array(shifted.prefix(320)))
     }
 }
+
+extension ProtoTests {
+    func testCalibrationTargetMarksTheRequestedCornerOnly() {
+        let w = 200, h = 120, box = 40
+        for (corner, probe) in [
+            (TargetCorner.topLeft, (5, 5)),
+            (TargetCorner.topRight, (w - 6, 5)),
+            (TargetCorner.bottomLeft, (5, h - 6)),
+        ] {
+            let px = calibrationTarget(width: w, height: h, corner: corner, box: box)
+            XCTAssertEqual(px.count, w * h)
+            XCTAssertNotEqual(px[probe.1 * w + probe.0], 0,
+                              "\(corner.label) should be lit at \(probe)")
+            /* The centre of a panel this size is never inside a corner box. */
+            XCTAssertEqual(px[(h / 2) * w + (w / 2)], 0,
+                           "\(corner.label) lit the middle of the panel")
+        }
+    }
+
+    func testCalibrationTargetSurvivesADegenerateSize() {
+        XCTAssertTrue(calibrationTarget(width: 0, height: 0, corner: .topLeft).isEmpty)
+        /* A box larger than the panel is clamped, not written out of bounds. */
+        XCTAssertEqual(calibrationTarget(width: 8, height: 8, corner: .topRight, box: 99).count, 64)
+    }
+}

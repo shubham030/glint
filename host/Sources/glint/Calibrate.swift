@@ -6,27 +6,44 @@ import GlintCore
 /// touch glass is wired relative to the panel's scan direction — three stacked
 /// transforms that are far easier to measure than to reason about.
 func calibrateTouch(dev: Link, hello: Hello, landscape: Bool) {
-    let corners = [
-        "TOP-LEFT", "TOP-RIGHT", "BOTTOM-LEFT",
-    ]
+    let corners: [TargetCorner] = [.topLeft, .topRight, .bottomLeft]
     var taps: [(x: Int, y: Int)] = []
 
+    /* Draw the target on the panel. Naming a corner of an unlit screen and
+     * hoping the user picks the same one is how this went wrong first time: the
+     * panel is black between frames, so "tap TOP-LEFT" asks the user to assume
+     * an orientation — the very thing being measured. */
+    let tiles = TileSender(
+        panelW: hello.panelW, panelH: hello.panelH,
+        maxTileLen: hello.maxTileLen, allowRLE: hello.supports(.rle))
+    let blank = [UInt16](repeating: 0, count: hello.panelW * hello.panelH)
+
     print("""
-        Calibration: as you are looking at the panel \
-        (\(landscape ? "landscape" : "portrait")), tap and release each corner \
-        when prompted. Ctrl-C to abort.
+        Calibration: tap the red-and-white square as it appears in each corner \
+        of the panel. Ctrl-C to abort.
         """)
 
     for corner in corners {
-        print("→ tap \(corner) …", terminator: " ")
+        let target = calibrationTarget(
+            width: hello.panelW, height: hello.panelH, corner: corner)
+        do {
+            try dev.control(.reset, value: 0)
+            _ = try sendFullFrame(dev, tiles, px: target)
+        } catch {
+            print("could not draw the target (\(error)); tap \(corner.label)")
+        }
+        print("→ tap the square (\(corner.label)) …", terminator: " ")
         fflush(stdout)
         guard let tap = waitForTap(dev: dev) else {
-            print("no tap seen; is the touch firmware flashed?")
+            print("the link dropped before the tap — see the error above")
             return
         }
         taps.append(tap)
         print("got panel=(\(tap.x),\(tap.y))")
     }
+    /* Leave the panel clean rather than showing the last target for ever. */
+    try? dev.control(.reset, value: 0)
+    _ = try? sendFullFrame(dev, tiles, px: blank)
 
     let tl = taps[0], tr = taps[1], bl = taps[2]
 

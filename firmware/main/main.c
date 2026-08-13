@@ -132,7 +132,7 @@ void app_main(void)
     ESP_ERROR_CHECK(usb_vendor_init(tile_queue));
 #endif
 
-#if BOARD_HAS_FT6336
+#if BOARD_HAS_TOUCH
     /* Touch is a nice-to-have: log and carry on if the panel doesn't answer. */
     const esp_err_t tp = touch_init(i2c_bus);
     if (tp != ESP_OK) {

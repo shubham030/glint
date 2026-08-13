@@ -100,8 +100,8 @@
 #define BOARD_LCD_MIRROR_Y  0
 #define BOARD_LCD_INVERT    0 /* CO5300 drives RGB order directly */
 
-/* CST9217 touch — not wired up yet; rivo has a patched multi-touch driver. */
-#define BOARD_HAS_FT6336  0
+#define BOARD_HAS_FT6336    0
+#define BOARD_HAS_CST9217   1
 #define BOARD_CAN_SERIAL_BOOT 1
 #define BOARD_PIN_I2C_SDA GPIO_NUM_15
 #define BOARD_PIN_I2C_SCL GPIO_NUM_14
@@ -114,6 +114,22 @@
 
 #ifndef BOARD_BL_USE_PANEL
 #define BOARD_BL_USE_PANEL 0
+#endif
+
+#ifndef BOARD_HAS_CST9217
+#define BOARD_HAS_CST9217 0
+#endif
+
+/* One flag for "this board can report touch at all", so the task, the
+ * handshake and the build all key off the same thing. */
+#define BOARD_HAS_TOUCH (BOARD_HAS_FT6336 || BOARD_HAS_CST9217)
+
+#if BOARD_HAS_FT6336
+#define BOARD_TOUCH_NAME "FT6336"
+#elif BOARD_HAS_CST9217
+#define BOARD_TOUCH_NAME "CST9217"
+#else
+#define BOARD_TOUCH_NAME "no touch"
 #endif
 
 /* Largest single tile payload we accept: one full-width 64px strip. */

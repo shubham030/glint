@@ -91,11 +91,18 @@ static const tusb_desc_device_qualifier_t s_qualifier = {
 };
 #endif
 
+/* Filled from the board's own id at init, so two identical panels are
+ * distinguishable by `lsusb`/ioreg and by the host's device list *before* a
+ * handshake. A fixed serial made the second board indistinguishable from the
+ * first, which is what forced hosts to address panels by bus/address — and that
+ * changes on every replug. */
+static char s_serial[16] = "glint-0000";
+
 static const char *s_string_desc[] = {
     (const char[]){0x09, 0x04}, /* 0: en-US */
     "shubham030",               /* 1: manufacturer */
     "glint",                    /* 2: product */
-    "glint-000001",             /* 3: serial */
+    s_serial,                   /* 3: serial */
     "glint vendor interface",   /* 4 */
 };
 
@@ -256,6 +263,11 @@ esp_err_t usb_vendor_init(QueueHandle_t tile_queue)
     s_tile_queue = tile_queue;
     s_rx_sem = xSemaphoreCreateBinary();
     ESP_RETURN_ON_FALSE(s_rx_sem != NULL, ESP_ERR_NO_MEM, TAG, "sem");
+
+    /* Same id the handshake reports, so the two agree. */
+    glint_hello_t hello;
+    glint_hello_fill(&hello);
+    snprintf(s_serial, sizeof(s_serial), "glint-%04x", hello.dev_id);
 
     const tinyusb_config_t tusb_cfg = {
         .device_descriptor = &s_device_desc,

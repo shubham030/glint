@@ -28,3 +28,46 @@ public func renderColorBars(width: Int, height: Int, phase: Int) -> [UInt16] {
     }
     return px
 }
+
+/// Which corner a calibration target marks, in the orientation the viewer sees
+/// (panel coordinate (0,0) is the viewed top-left, since the firmware's mirror
+/// settings already make images render the right way round).
+public enum TargetCorner {
+    case topLeft, topRight, bottomLeft
+
+    public var label: String {
+        switch self {
+        case .topLeft: return "TOP-LEFT"
+        case .topRight: return "TOP-RIGHT"
+        case .bottomLeft: return "BOTTOM-LEFT"
+        }
+    }
+}
+
+/// A black frame with one bright square in `corner`, so calibration can ask for
+/// a tap *there* instead of describing a corner of an unlit screen. Returned as
+/// RGB565 in the panel's own layout.
+public func calibrationTarget(
+    width: Int, height: Int, corner: TargetCorner, box: Int = 72
+) -> [UInt16] {
+    var px = [UInt16](repeating: 0, count: max(0, width * height))
+    guard width > 0, height > 0 else { return px }
+    let side = min(box, min(width, height))
+    let x0: Int
+    let y0: Int
+    switch corner {
+    case .topLeft: (x0, y0) = (0, 0)
+    case .topRight: (x0, y0) = (width - side, 0)
+    case .bottomLeft: (x0, y0) = (0, height - side)
+    }
+    /* White, with a darker inner square so the centre to aim at is obvious. */
+    let white: UInt16 = 0xFFFF
+    let inner: UInt16 = 0xF800 /* red */
+    for y in y0..<(y0 + side) {
+        for x in x0..<(x0 + side) {
+            let edge = min(min(x - x0, y - y0), min(x0 + side - 1 - x, y0 + side - 1 - y))
+            px[y * width + x] = edge < side / 4 ? white : inner
+        }
+    }
+    return px
+}

@@ -2,7 +2,11 @@
 
 #include "board.h"
 #include "esp_check.h"
+#if BOARD_HAS_FT6336
 #include "esp_lcd_touch_ft6336.h"
+#elif BOARD_HAS_CST9217
+#include "esp_lcd_touch_cst9217.h"
+#endif
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -206,9 +210,30 @@ static void scan_bus(i2c_master_bus_handle_t bus)
     }
 }
 
+/* Everything below the controller is shared: both drivers present the same
+ * esp_lcd_touch interface, so the polling task, the slot matching and the event
+ * emission do not know which chip is underneath. */
+static esp_err_t new_controller(esp_lcd_panel_io_handle_t io,
+                                const esp_lcd_touch_config_t *cfg)
+{
+#if BOARD_HAS_FT6336
+    return esp_lcd_touch_new_i2c_ft6336(io, cfg, &s_tp);
+#elif BOARD_HAS_CST9217
+    return esp_lcd_touch_new_i2c_cst9217(io, cfg, &s_tp);
+#else
+    (void)io;
+    (void)cfg;
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
+}
+
 esp_err_t touch_init(i2c_master_bus_handle_t bus)
 {
+#if BOARD_HAS_FT6336
     esp_lcd_panel_io_i2c_config_t io_cfg = ESP_LCD_TOUCH_IO_I2C_FT6336_CONFIG();
+#elif BOARD_HAS_CST9217
+    esp_lcd_panel_io_i2c_config_t io_cfg = ESP_LCD_TOUCH_IO_I2C_CST9217_CONFIG();
+#endif
     io_cfg.scl_speed_hz = 400 * 1000;
     esp_lcd_panel_io_handle_t io = NULL;
     ESP_RETURN_ON_ERROR(esp_lcd_new_panel_io_i2c(bus, &io_cfg, &io), TAG,
@@ -235,10 +260,10 @@ esp_err_t touch_init(i2c_master_bus_handle_t bus)
      * chip that only answers *after* its reset pulse, and reported perfectly
      * good touch hardware as absent. Diagnose only once this has really
      * failed. */
-    const esp_err_t err = esp_lcd_touch_new_i2c_ft6336(io, &cfg, &s_tp);
+    const esp_err_t err = new_controller(io, &cfg);
     if (err != ESP_OK) {
-        ESP_LOGW(TAG, "FT6336 init failed (%s) — scanning the i2c bus:",
-                 esp_err_to_name(err));
+        ESP_LOGW(TAG, "%s init failed (%s) — scanning the i2c bus:",
+                 BOARD_TOUCH_NAME, esp_err_to_name(err));
         scan_bus(bus);
         return err;
     }
@@ -248,7 +273,7 @@ esp_err_t touch_init(i2c_master_bus_handle_t bus)
     ESP_RETURN_ON_FALSE(ok == pdPASS, ESP_ERR_NO_MEM, TAG, "touch task");
 
     s_available = true;
-    ESP_LOGI(TAG, "FT6336 up (%dx%d, %d Hz)", BOARD_LCD_H_RES, BOARD_LCD_V_RES,
-             POLL_HZ);
+    ESP_LOGI(TAG, "%s up (%dx%d, %d Hz)", BOARD_TOUCH_NAME, BOARD_LCD_H_RES,
+             BOARD_LCD_V_RES, POLL_HZ);
     return ESP_OK;
 }

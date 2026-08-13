@@ -17,7 +17,7 @@ esp_err_t touch_init(i2c_master_bus_handle_t bus);
  * touch.c is only compiled for boards with a driver (see main/CMakeLists.txt),
  * so the others need the answer without the translation unit — hence the inline
  * false rather than a link-time error. */
-#if BOARD_HAS_FT6336
+#if BOARD_HAS_TOUCH
 bool touch_available(void);
 #else
 static inline bool touch_available(void) { return false; }

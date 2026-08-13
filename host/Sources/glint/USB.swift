@@ -37,15 +37,18 @@ final class USBDevice {
     /// the ZLP rule: transfers that are an exact multiple must be terminated.
     let maxPacket: Int
 
-    /// One matching device on the bus. Firmware currently reports a fixed
-    /// serial number, so bus/address is the only way to tell two panels apart.
+    /// One matching device on the bus. The serial is the board's own id, so it
+    /// names a panel without a handshake and survives replugging — bus/address
+    /// does neither.
     struct Found {
         let bus: UInt8
         let address: UInt8
         let speed: String
+        let serial: String?
 
         var description: String {
-            "bus \(bus) addr \(address) (\(speed)-speed)"
+            (serial.map { "\($0), " } ?? "")
+                + "bus \(bus) addr \(address) (\(speed)-speed)"
         }
     }
 
@@ -75,9 +78,27 @@ final class USBDevice {
                     bus: libusb_get_bus_number(dev),
                     address: libusb_get_device_address(dev),
                     speed: speed >= LIBUSB_SPEED_HIGH.rawValue
-                        ? "high" : "full"))
+                        ? "high" : "full",
+                    serial: readSerial(dev, desc.iSerialNumber)))
         }
         return found
+    }
+
+    /// Reads the serial string, or nil if the device will not open. Opening is
+    /// harmless while another process streams to it: a claim is per-interface,
+    /// and this reads a descriptor without claiming anything.
+    private static func readSerial(_ dev: OpaquePointer, _ index: UInt8)
+        -> String?
+    {
+        guard index != 0 else { return nil }
+        var handle: OpaquePointer?
+        guard libusb_open(dev, &handle) == 0, let handle else { return nil }
+        defer { libusb_close(handle) }
+        var buf = [UInt8](repeating: 0, count: 64)
+        let n = libusb_get_string_descriptor_ascii(
+            handle, index, &buf, Int32(buf.count))
+        guard n > 0 else { return nil }
+        return String(decoding: buf.prefix(Int(n)), as: UTF8.self)
     }
 
     /// Opens the device, optionally waiting for it to appear. Cables on this

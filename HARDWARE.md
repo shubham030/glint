@@ -135,6 +135,29 @@ Verified end to end: taps post real `leftMouseDown`/`leftMouseUp` pairs at
 coordinates inside the panel's own region of the desktop (corner taps at
 (-946, 88), centre at (-553, 333) for a display at (-960, 0) 960x640).
 
+### S3 AMOLED 1.75" (CST9217)
+
+Different chip, different mapping. Measured by tapping all four corners with no
+flags applied (screen coords on a 932x932 desktop at origin (-932, 0)):
+
+| tap | cursor landed |
+|---|---|
+| top-left | (-104, 212) |
+| top-right | (-232, 836) |
+| bottom-left | (-814, 172) |
+| bottom-right | (-810, 766) |
+
+Moving right swung *y* by 624 and barely moved *x*; moving down did the
+opposite. So the axes are swapped and the new Y is inverted:
+
+```sh
+glint display --touch --tp-swap --tp-flip-y
+```
+
+Verified after applying: top-left reads 25% across / 9% down, bottom-right 76% /
+88%. The values sit inside the corners because this panel's corners are rounded
+away — there is no glass at 0,0 to tap.
+
 Recalibrate only if the panel is remounted or a different board is used.
 
 ## Boards ruled out

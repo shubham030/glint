@@ -7,6 +7,13 @@ dependencies:
   espressif/esp_lcd_touch: "^1.1.2"
   # CO5300 AMOLED (QSPI) — the S3-Touch-AMOLED-1.75 board profile
   espressif/esp_lcd_co5300: "^2.1.0"
+  # That board's touch controller. Vendor driver rather than our own: the
+  # CST9217 uses 16-bit big-endian register addresses and needs a command-mode
+  # write to report valid data, which is not worth reimplementing.
+  waveshare/esp_lcd_touch_cst9217:
+    version: "^1.0.4"
+    rules:
+      - if: "target == esp32s3"
   # so the host can find the panel without being told a DHCP address
   espressif/mdns: "^1.2"
   # P4 has no radio: Wi-Fi comes from the onboard ESP32-C6 over SDIO.
