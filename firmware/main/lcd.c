@@ -18,10 +18,6 @@
 #include "driver/ledc.h"
 #endif
 
-#if CONFIG_GLINT_BOARD_S3_LCD35
-#include "board_init_s3.h"
-#endif
-
 static const char *TAG = "lcd";
 
 static esp_lcd_panel_handle_t s_panel;
@@ -153,16 +149,11 @@ esp_err_t lcd_init(void)
         TAG, "panel io");
 
 #if BOARD_LCD_QSPI
+    /* QSPI panels carry commands in-band rather than on a DC line. A board
+     * whose panel needs a non-default init table can pass one here through
+     * the driver's vendor_config. */
     const co5300_vendor_config_t vendor_cfg = {
         .flags.use_qspi_interface = 1,
-    };
-#elif CONFIG_GLINT_BOARD_S3_LCD35
-    /* Waveshare's panel wants its own init table; the registry defaults are
-     * the registry driver's defaults, so the P4 passes no vendor config. */
-    static const st7796_vendor_config_t vendor_cfg = {
-        .init_cmds = k_s3_panel_init,
-        .init_cmds_size =
-            sizeof(k_s3_panel_init) / sizeof(k_s3_panel_init[0]),
     };
 #endif
     const esp_lcd_panel_dev_config_t panel_cfg = {
@@ -173,7 +164,7 @@ esp_err_t lcd_init(void)
         .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_BGR,
 #endif
         .bits_per_pixel = 16,
-#if BOARD_LCD_QSPI || CONFIG_GLINT_BOARD_S3_LCD35
+#if BOARD_LCD_QSPI
         .vendor_config = (void *)&vendor_cfg,
 #endif
     };

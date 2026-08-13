@@ -19,14 +19,21 @@ gradients and photographs are not its strength.
 
 ## Boards
 
-| Board | Panel | Link | State |
-|---|---|---|---|
-| ESP32-P4-WIFI6-Touch-LCD-3.5 | ST7796 SPI, 320x480, FT6336 touch | USB high speed, Wi-Fi | Runs, touch calibrated |
-| Waveshare ESP32-S3-Touch-AMOLED-1.75 | CO5300 QSPI, 466x466, CST9217 touch | USB full speed, Wi-Fi | Runs, touch calibrated |
-| Waveshare ESP32-S3-Touch-LCD-3.5 | ST7796 SPI, 320x480 | USB full speed | Builds; not run on hardware |
+I have tested it on these two boards, and the measurements in this README come
+from them:
 
-One firmware image covers all three; `menuconfig` picks the board.
-[HARDWARE.md](HARDWARE.md) has pins, flashing and touch mappings.
+| Board | Panel | Link |
+|---|---|---|
+| ESP32-P4-WIFI6-Touch-LCD-3.5 | ST7796 SPI, 320x480, FT6336 touch | USB high speed, Wi-Fi |
+| Waveshare ESP32-S3-Touch-AMOLED-1.75 | CO5300 QSPI, 466x466, CST9217 touch | USB full speed, Wi-Fi |
+
+Nothing here is specific to them. A board is one header in
+`firmware/main/boards/` giving a pin map and a few panel quirks; `menuconfig`
+picks which one is built. To use different hardware, copy
+`firmware/main/boards/template.h` to `custom.h`, fill it in, and select "Custom
+board" — the build names anything you leave out. The panel's size and
+capabilities reach both hosts through the handshake, so neither host changes.
+[HARDWARE.md](HARDWARE.md) covers pins, flashing, porting and touch mappings.
 
 ## macOS
 

@@ -1,14 +1,15 @@
 # Hardware
 
-Three boards, one firmware image. `idf.py menuconfig` under "glint board" picks
-which; `firmware/main/board.h` holds the profiles. The host learns the geometry
-from the handshake, so adding a board is a firmware-only change.
+One firmware image, one board profile selected at build time by `idf.py
+menuconfig` under "glint board". The two boards below are the ones I have
+tested; see [Adding a board](#adding-a-board) for anything else. The host learns
+the panel's geometry from the handshake, so a new board is a firmware-only
+change.
 
-The pin tables below are the assignments the firmware uses. They were derived
-from working code for these specific units rather than from vendor
-documentation, and boards from the same product line do vary. Anyone bringing up
-a different unit should check them against their own board's schematic before
-trusting them.
+The pin tables are the assignments this firmware uses. They were derived from
+working code for these specific units rather than from vendor documentation, and
+boards from the same product line do vary — check them against your own board's
+schematic before trusting them.
 
 ## ESP32-P4-WIFI6-Touch-LCD-3.5
 
@@ -70,30 +71,39 @@ than the panel bus is the limit here and RLE earns its keep.
 
 Its single data port is muxed to USB-Serial-JTAG, so `glint bootloader` works.
 
-## Waveshare ESP32-S3-Touch-LCD-3.5
+## Adding a board
 
-Kept as a build target. It matches the P4 board's panel spec, but no unit has
-been run here, so treat the profile as untested. USB is full speed.
+A board is one header in `firmware/main/boards/`, and nothing outside it knows
+the hardware. `firmware/main/board.h` selects one, supplies a default for
+everything optional, and checks the rest at compile time.
 
-| | |
-|---|---|
-| SoC | ESP32-S3R8, 8 MB octal PSRAM |
-| Panel | ST7796, SPI2 at 80 MHz, SPI mode 0, colour-inverted, unmirrored |
-| CS and RST | not GPIO-driven — tied on-board and PMU-powered |
-| Touch | FT6336 at I2C address 0x38 |
-| PMU | AXP2101 at 0x34 — its rails must be enabled before the panel works |
+```sh
+cp firmware/main/boards/template.h firmware/main/boards/custom.h
+# fill in the pin map, then:
+idf.py menuconfig     # glint board → Custom board
+idf.py build flash
+```
 
-| Function | GPIO |
-|---|---|
-| LCD MOSI | 1 |
-| LCD SCLK | 5 |
-| LCD DC | 3 |
-| LCD backlight | 6 (LEDC PWM) |
-| I2C SDA | 8 |
-| I2C SCL | 7 |
+The template compiles unedited, so the first build succeeds and you replace
+placeholder pins one at a time. Anything required and missing is reported by
+name — `board profile must define BOARD_LCD_PCLK_HZ`, for instance — rather than
+as an error deep in a driver.
 
-The AXP2101 is driven through the vendored XPowersLib component, configured as
-the factory demo does.
+A minimal profile is a panel size, a clock, four or five pins and a backlight.
+Touch, a PMU, a column offset, mirroring and colour inversion are all optional,
+and a display-only board needs none of them. Two panel shapes are supported:
+SPI with a DC line, and QSPI with commands carried in-band.
+
+What is not covered by a profile: a panel whose controller is neither an ST7796
+nor a CO5300 needs its driver added in `lcd.c`, and a third touch controller
+needs a branch in `touch.c` beside the existing two. Both are a few lines, since
+the drivers come from the ESP component registry.
+
+Bring-up order that isolates faults: `glint bars` first, which proves the bus,
+the pin map and the colour order without involving capture; then `glint hello`
+to confirm the geometry the handshake reports; then touch, if the board has it.
+A mirrored or colour-swapped picture at the bars stage is a profile flag, not a
+wiring fault.
 
 ## Building and flashing
 

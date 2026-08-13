@@ -1,10 +1,8 @@
 set(srcs "main.c" "lcd.c" "usb_vendor.c" "rle.c" "stream.c")
 
-# Every board with a touch controller: the driver differs, touch.c does not.
-if(CONFIG_GLINT_BOARD_P4_LCD35 OR CONFIG_GLINT_BOARD_S3_LCD35
-   OR CONFIG_GLINT_BOARD_S3_AMOLED175)
-    list(APPEND srcs "touch.c")
-endif()
+# Always built: touch.c guards its own body on BOARD_HAS_TOUCH, which only the
+# selected board profile knows.
+list(APPEND srcs "touch.c")
 
 if(CONFIG_GLINT_ENABLE_WIFI)
     list(APPEND srcs "net.c")

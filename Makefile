@@ -2,7 +2,7 @@ IDF_EXPORT := source $(HOME)/esp/esp-idf-v5.5/export.sh >/dev/null 2>&1
 PORT ?= $(shell ls /dev/cu.usbmodem* 2>/dev/null | head -1)
 GLINT := ./host/.build/release/glint
 
-.PHONY: all fw fw-s3 host test test-host test-fw test-go flash monitor \
+.PHONY: all fw host test test-host test-fw test-go flash monitor \
         display display-portrait display-wifi panels mirror bars hello stats \
         calibrate pi install-agent uninstall-agent clean fw-amoled flash-amoled
 
@@ -13,10 +13,6 @@ fw:
 
 # The other supported board (Waveshare ESP32-S3-Touch-LCD-3.5), built in its own
 # directory so the P4 config stays put.
-fw-s3:
-	cd firmware && $(IDF_EXPORT) && \
-	  idf.py -B build_s3 -D SDKCONFIG=sdkconfig.s3 set-target esp32s3 build
-
 # The 1.75" QSPI AMOLED board — a different panel driver and geometry, so it
 # gets its own config and build directory rather than reconfiguring in place.
 fw-amoled:

@@ -2,6 +2,11 @@
 
 #include "board.h"
 #include "esp_check.h"
+/* Everything below needs a touch controller. A board profile without one still
+ * compiles this file, so the guard lives here rather than in the build: CMake
+ * cannot see BOARD_HAS_TOUCH, which a custom profile defines in a header. */
+#if BOARD_HAS_TOUCH
+
 #if BOARD_HAS_FT6336
 #include "esp_lcd_touch_ft6336.h"
 #elif BOARD_HAS_CST9217
@@ -277,3 +282,5 @@ esp_err_t touch_init(i2c_master_bus_handle_t bus)
              BOARD_LCD_V_RES, POLL_HZ);
     return ESP_OK;
 }
+
+#endif /* BOARD_HAS_TOUCH */

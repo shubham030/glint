@@ -3,7 +3,7 @@ menu "glint board"
 choice GLINT_BOARD
     prompt "Target board"
     default GLINT_BOARD_P4_LCD35 if IDF_TARGET_ESP32P4
-    default GLINT_BOARD_S3_LCD35 if IDF_TARGET_ESP32S3
+    default GLINT_BOARD_S3_AMOLED175 if IDF_TARGET_ESP32S3
     help
         Which panel this firmware drives. The host learns the geometry from the
         HELLO handshake, so a different panel needs no host change.
@@ -12,13 +12,16 @@ config GLINT_BOARD_P4_LCD35
     bool "ESP32-P4-WIFI6-Touch-LCD-3.5 (ST7796 SPI, 320x480)"
     depends on IDF_TARGET_ESP32P4
 
-config GLINT_BOARD_S3_LCD35
-    bool "Waveshare ESP32-S3-Touch-LCD-3.5 (ST7796 SPI, 320x480)"
-    depends on IDF_TARGET_ESP32S3
-
 config GLINT_BOARD_S3_AMOLED175
     bool "Waveshare ESP32-S3-Touch-AMOLED-1.75 (CO5300 QSPI, 466x466)"
     depends on IDF_TARGET_ESP32S3
+
+config GLINT_BOARD_CUSTOM
+    bool "Custom board (main/boards/custom.h)"
+    help
+        Your own hardware. Copy main/boards/template.h to
+        main/boards/custom.h and fill in the pin map; the build reports
+        anything missing by name.
 
 endchoice
 
