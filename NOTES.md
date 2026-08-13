@@ -98,3 +98,29 @@ tap moves right settles whether the axes are swapped, and the sign of that
 movement settles each flip. `glint touch --calibrate` implements this; reading
 corner coordinates by eye and deciding the axes look swapped is the failure it
 exists to prevent.
+
+## Windows binds a driver only if the descriptors ask it to
+
+A bare vendor interface has nothing for Windows to load, so the device
+enumerates and stops at `Status: Error`. MS OS 2.0 descriptors name `WINUSB` as
+the compatible ID, and Windows then loads its in-box WinUSB driver with no
+`.inf` and no user action. Three conditions must all hold, and each fails
+silently on its own:
+
+- **`bcdUSB` must be 0x0210 or later.** A device claiming plain USB 2.0 is
+  never asked for its BOS descriptor, so the MS OS 2.0 set is unreachable no
+  matter how correct it is. Leave the device *qualifier* at 0x0200 — it
+  describes the other speed and predates 2.1, and a qualifier claiming 2.1
+  breaks enumeration outright on a high-speed port.
+- **The features belong at device scope for a single-interface device.** The
+  configuration and function subsets that most examples show exist to target
+  one function of a composite device. Put the compatible ID inside a function
+  subset here and Windows reads the whole set, applies none of it, and leaves
+  the class-derived compatible IDs in place.
+- **Windows caches its verdict per VID/PID/revision.** A device it has already
+  failed to bind is not re-evaluated on replug. Bump `bcdDevice` when the
+  descriptors change, or remove the device node with
+  `pnputil /remove-device` and replug.
+
+`USB\MS_COMP_WINUSB` appearing in the device's compatible IDs is the signal
+that the descriptor set was accepted; `Service: WINUSB` means the driver bound.

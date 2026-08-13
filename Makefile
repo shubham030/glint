@@ -4,7 +4,7 @@ GLINT := ./host/.build/release/glint
 
 .PHONY: setup all fw host test test-host test-fw test-go flash monitor \
         display display-portrait display-wifi panels mirror bars hello stats \
-        calibrate pi install-agent uninstall-agent clean fw-amoled flash-amoled
+        calibrate pi windows install-agent uninstall-agent clean fw-amoled flash-amoled
 
 # Guided first run: finds the board, picks a profile, builds, flashes, starts.
 setup:
@@ -82,6 +82,16 @@ stats: host
 
 calibrate: host
 	$(GLINT) touch --calibrate
+
+# The Go host runs on Windows too, but only over Wi-Fi: its USB path is usbfs
+# (Linux) and `fb` needs a Linux framebuffer. Everything else — discovery,
+# handshake, tiles, RLE, touch events — is platform-neutral.
+windows:
+	cd linux && GOOS=windows GOARCH=amd64 go build -o glint.exe ./cmd/glint
+	@echo "built linux/glint.exe — copy to the Windows box, then:"
+	@echo "  glint.exe panels                 # find the panel on the network"
+	@echo "  glint.exe hello -net auto"
+	@echo "  glint.exe bars -net auto -seconds 10"
 
 # Cross-compile the Go host for both shapes of Pi. 64-bit Raspberry Pi OS (a
 # Pi 3 and up) needs arm64; armv6 covers a Pi Zero W and 32-bit Pi OS anywhere.

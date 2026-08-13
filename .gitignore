@@ -27,3 +27,4 @@ firmware/sdkconfig.wifi.defaults
 
 # Cross-compiled Go hosts (make pi)
 linux/glint-pi-*
+linux/glint.exe

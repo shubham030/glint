@@ -146,7 +146,9 @@ Linux host on a Raspberry Pi 3, colour bars with RLE: 49.3 fps over USB and
   for every virtual-display tool on macOS.
 - Backlight on the P4 board is a plain GPIO, so `CMD_BACKLIGHT` is on/off there.
 - Screen Recording permission is required, and the recording indicator stays on.
-- No Windows host. It would need MS OS 2.0 descriptors so WinUSB binds.
+- The Windows host drives the panel over Wi-Fi only. The firmware now binds
+  WinUSB, so a USB backend is possible, but the Go host's USB path is usbfs and
+  Linux-only.
 
 ## Verification without hardware
 
