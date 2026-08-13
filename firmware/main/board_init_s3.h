@@ -1,7 +1,7 @@
 /* Waveshare ESP32-S3-Touch-LCD-3.5 panel init table, lifted verbatim from the
  * factory demo's forked esp_lcd_st7796 (vendor_specific_init_default). Passed
  * to the registry driver via vendor_config on the S3 build only — the P4
- * board's panel is proven on the registry driver's own defaults (mapcast). */
+ * board's panel works on the registry driver's own defaults. */
 #pragma once
 
 #include "esp_lcd_st7796.h"

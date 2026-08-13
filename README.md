@@ -1,208 +1,167 @@
 # glint
 
-An extra display for your computer, on a 3.5" ESP32 panel, over one USB cable.
+glint turns a supported ESP32 board with an LCD into an extra display for a
+computer.
 
-A *glint* is small reflected light — which is what this is: the panel has no
-content of its own, it shows borrowed pixels. macOS gets a real second display
-(windows drag onto it, it appears in System Settings); the panel gets the
-changed tiles of that desktop over a USB vendor interface. **No kext, no driver
-signing, nothing installed.**
+The firmware is an ESP-IDF application. It receives tiles of pixels over a USB
+vendor interface or over TCP on Wi-Fi, paints them on the panel, and reports
+touch events back. Two hosts drive it:
 
-It is a **status panel, not a monitor**: a docked terminal tailing logs, a timer,
-Activity Monitor, now-playing. See [DESIGN.md](DESIGN.md) §11 for why that
-expectation is the honest one.
+- **macOS** (Swift) creates a real virtual display through private CoreGraphics
+  API. Windows drag onto it and it appears in System Settings. Nothing is
+  installed: no kext, no driver signing.
+- **Linux** (pure Go, no cgo) mirrors a framebuffer to the panel. On a
+  Raspberry Pi this needs no X server.
 
-## Status
+At 3.5" and 165 PPI this suits a status panel — a docked terminal, a monitor
+widget, a timer — better than a general second monitor. Text is legible;
+gradients and photographs are not its strength.
 
-| | | |
-|---|---|---|
-| M0 | Transport + framing | ✅ |
-| M1 | Static image → panel | ✅ fit / fill / rotate, any ImageIO format |
-| M2 | Mirror the main display | ✅ |
-| M3 | Real virtual display (`CGVirtualDisplay`) | ✅ extended desktop, 960×640 |
-| M4 | Dirty-rect tiling | ✅ **300 KB → 18 KB per frame** (16.6×) |
-| — | RGB565 RLE (fmt 1) | ✅ on by default; **7.9 MB/s, 25.7 fps** on the P4 |
-| — | Wi-Fi transport (TCP, no data cable) | ✅ P4 1.93 MB/s, 6.3 fps |
-| — | Second board: S3 AMOLED 1.75" (CO5300 QSPI, 466×466) | ✅ one image, `menuconfig` picks the board; touch included |
-| M5 | Touch → cursor | ✅ real clicks land on the panel's region: `--tp-swap --tp-flip-x` |
-| — | Linux / Pi host | ✅ on a Pi 3: USB **49 fps**, Wi-Fi **32 fps**, console at 1:1 |
-| — | S3 3.5" SPI board profile | ⚠️ builds, **no such board here to run it on** |
-| — | Touch on the AMOLED | ✅ CST9217 via Waveshare's driver: `--tp-swap --tp-flip-y` |
-| — | Windows host | ⚠️ not started; needs MS OS 2.0 descriptors so WinUSB binds |
-| M6 | DSI panel swap | future ([DESIGN.md](DESIGN.md) §8) |
+## Boards
 
-Everything marked ⚠️ compiles and passes unit tests but has not touched
-hardware — the honest distinction, kept here deliberately.
+| Board | Panel | Link | State |
+|---|---|---|---|
+| ESP32-P4-WIFI6-Touch-LCD-3.5 | ST7796 SPI, 320x480, FT6336 touch | USB high speed, Wi-Fi | Runs, touch calibrated |
+| Waveshare ESP32-S3-Touch-AMOLED-1.75 | CO5300 QSPI, 466x466, CST9217 touch | USB full speed, Wi-Fi | Runs, touch calibrated |
+| Waveshare ESP32-S3-Touch-LCD-3.5 | ST7796 SPI, 320x480 | USB full speed | Builds; not run on hardware |
 
-## Quick start (macOS)
+One firmware image covers all three; `menuconfig` picks the board.
+[HARDWARE.md](HARDWARE.md) has pins, flashing and touch mappings.
+
+## macOS
+
+ESP-IDF v5.5 builds the firmware; the Makefile expects it at
+`~/esp/esp-idf-v5.5`. The host needs a Swift toolchain and libusb
+(`brew install libusb`); `Package.swift` declares a macOS 13 minimum, and the
+virtual-display behaviour described below was observed on macOS 26.5.
 
 ```sh
 make            # build firmware + host
-make flash      # flash the panel (UART Type-C port)
+make flash      # flash the panel over its UART port
 make display    # extended desktop on the panel
 ```
 
-`make display` finds the panel by itself: **USB if a cable is in, otherwise the
-first panel answering on the network** (each board advertises `_glint._tcp` as
-`glint-<id>.local`). USB wins when both are available — it is an order of
-magnitude faster, and a plugged-in cable is the clearer statement of intent.
-
-It also waits, so starting it before the panel exists is fine, and it exits when
-the panel goes away so a supervisor can restart it. `make install-agent` runs it
-at login — which now covers a panel that is powered on the far side of the room
-with no cable at all.
-
-Naming one deliberately:
+`make display` finds a panel by itself: USB when a cable is in, otherwise the
+first panel answering on the network. Wi-Fi is off by default on the SPI boards
+(`menuconfig` → Wi-Fi; see [HARDWARE.md](HARDWARE.md)), so a freshly flashed one
+is USB-only until it is enabled and given credentials. Each board advertises `_glint._tcp` as
+`glint-<id>.local`. USB is preferred when both are available, being about four
+times faster. The virtual display lives exactly as long as the process; the
+process waits for a panel to appear and exits when one goes away, so a
+supervisor can restart it. `make install-agent` runs it at login.
 
 ```sh
 make panels                              # every panel reachable, both transports
-make display-wifi                        # wireless only, auto-picked
-make display-wifi PANEL=glint-335b.local # wireless, that board
+make display-wifi PANEL=glint-335b.local # wireless only; empty PANEL auto-picks
 glint display --usb                      # USB only
-glint display --serial glint-335b         # that board, on either transport
-```
-
-`glint --list` marks a panel already serving another session as *in use*, since
-the firmware takes one client at a time. On screen panels identify themselves by
-board id (`glint 335b`), so macOS keeps each one's arrangement and resolution
-separately.
-
-Other modes:
-
-```sh
-glint display --portrait          # panel upright: 640×960 desktop
-glint display --touch --tp-swap --tp-flip-x   # touch drives the cursor (P4 mapping)
-glint mirror --landscape          # mirror the main display instead
-glint image photo.heic --fill     # push one still
-glint bars --seconds 10           # transport test
-glint touch --calibrate           # derive the touch mapping from 3 taps
-glint stats                       # device counters (drops, resyncs)
+glint display --serial glint-335b        # that board, on either transport
+glint display --portrait                 # panel upright: 640x960 desktop
+glint display --touch --tp-swap --tp-flip-x  # touch drives the cursor
+glint doctor                             # panel, permissions, private API
+glint mirror --landscape                 # mirror the main display instead
+glint image photo.heic --fill            # push one still
+glint bars --seconds 10                  # transport test
+glint touch --calibrate                  # derive the touch mapping from taps
+glint stats                              # device counters (drops, resyncs)
 glint backlight 128 | glint sleep 1
 ```
 
-Colour shaping: `--sat P --con P` (percent; defaults 130/110), `--flat` for
-none. Desktop size: `--width W --height H --1x`. Frame cap: `--fps N`.
-`--full` disables tiling (useful for A/B measurement).
+`make panels` runs `glint --list`, which marks a panel already serving another
+session as in use. The Linux host spells the same command `glint panels`.
+
+Colour shaping: `--sat P --con P` (percent, defaults 130 and 110), `--flat` for
+none. Desktop size: `--width W --height H --1x`. Frame cap: `--fps N`. `--full`
+disables tiling, which is useful for measurement. `glint display` needs Screen
+Recording permission and `--touch` also needs Accessibility; `glint doctor`
+reports on both.
 
 ## Linux and Raspberry Pi
 
-The protocol is host-agnostic, so a Pi can drive the same panel with no
-virtual-display trickery — render something and tile it out. It has **no cgo and
-no module dependencies**: USB goes straight to the kernel via usbfs ioctls, so
-cross-compiling needs no libusb and no network.
+The protocol is host-agnostic, so a Pi drives the same panel with no
+virtual-display machinery. The Go host (Go 1.21 or newer) has no cgo and no
+module dependencies — USB goes through usbfs ioctls — so cross-compiling needs
+neither libusb nor a network.
 
 ```sh
-make pi                                   # builds arm64 and armv6
+make pi                                        # builds arm64 and armv6
 scp linux/glint-pi-arm64 <user>@<pi>:~/glint
-scp packaging/70-glint.rules <user>@<pi>:~/   # usbfs permission, once
-ssh <pi> ./glint fbinfo                   # framebuffer geometry, no panel needed
-ssh <pi> ./glint fb -native -landscape    # the console, on the panel, 1:1
-ssh <pi> ./glint fb -net auto -native     # same thing with no data cable
+scp packaging/70-glint.rules <user>@<pi>:~/    # usbfs permission, once
+ssh <pi> ./glint fbinfo                        # framebuffer geometry, no panel needed
+ssh <pi> ./glint fb -native -landscape         # the console, on the panel, 1:1
+ssh <pi> ./glint fb -net auto -native          # the same with no data cable
 ```
 
-64-bit Raspberry Pi OS (a Pi 3 and up) needs the arm64 build; armv6 covers a Pi
-Zero W. Wi-Fi works here too: `-net <host|auto>` on any mode, and `glint panels`
-lists what is advertising itself. `.local` names are resolved by a small
-built-in mDNS client, because a cgo-free binary uses Go's pure resolver, which
-does not consult avahi.
-
-**`-native` is the one that matters for text.** Unlike macOS, we own the
-framebuffer geometry here, so `fb -native` sets the console to the panel's exact
-size and streams **1:1 — no scaling at all** — then restores the old mode on
-exit. Measured on a Pi 3: 49 fps over USB, 32 fps over Wi-Fi, and a static
-console sends almost nothing (144 tiles across 548 frames). See
+64-bit Raspberry Pi OS needs `glint-pi-arm64`; `glint-pi-armv6` covers a Pi Zero
+W and 32-bit Pi OS. `-native` sets the console to the panel's exact size and
+streams without scaling, which macOS cannot do. Details in
 [linux/README.md](linux/README.md).
+
+## Measured performance
+
+Full-frame throughput over USB, colour bars, no compression:
+
+| | ESP32-P4 (high speed) | ESP32-S3 AMOLED (full speed) |
+|---|---|---|
+| Throughput | 7.9 MB/s | 0.46 MB/s |
+| Full-screen frame rate | 25.7 fps at 320x480 | about 1 fps at 466x466 |
+| Bound by | the ST7796 SPI bus, about 8 MB/s | the 1.2 MB/s full-speed USB ceiling |
+
+Neither is bound by the host: profiling a full-frame send puts 94-100% of each
+frame in the USB write, with render and encode together under 3 ms. What the
+encoding does to a frame on the P4:
+
+| | |
+|---|---|
+| Full frame, uncompressed | 300 KB |
+| Dirty-tile push, typical desktop | 18 KB, 2.4 tiles per frame |
+| Idle desktop | most frames send nothing |
+| Flat 64x64 tile, RLE | 8192 bytes to 4 |
+| Wi-Fi, same frames | 1.93 MB/s, 6.3 fps |
+
+Linux host on a Raspberry Pi 3, colour bars with RLE: 49.3 fps over USB and
+35.1 fps over Wi-Fi with tiling; 45.6 and 32.5 fps sending whole frames.
+
+## Limits
+
+- The macOS desktop is 960x640 downscaled 2:1, because macOS will not create a
+  virtual display at the panel's native size. See [NOTES.md](NOTES.md).
+- HiDPI is ignored for virtual displays.
+- `CGVirtualDisplay` is private API and can break on any macOS update, as it can
+  for every virtual-display tool on macOS.
+- Backlight on the P4 board is a plain GPIO, so `CMD_BACKLIGHT` is on/off there.
+- Screen Recording permission is required, and the recording indicator stays on.
+- No Windows host. It would need MS OS 2.0 descriptors so WinUSB binds.
+
+## Verification without hardware
+
+`make test` runs the Swift unit tests for the platform-neutral host code (wire
+format, tiling, RLE, touch mapping, option parsing), the host-compiled C tests
+for the firmware's RLE decoder, and `go test ./...` across the Linux packages.
+
+The three RLE implementations are pinned to each other by a shared fixture:
+bytes from the Swift encoder are decoded by the firmware's own C decoder
+(`firmware/test/rle_test.c`), and the Go encoder is asserted to produce those
+same bytes (`linux/proto/fixture_test.go`).
 
 ## Layout
 
 ```
 protocol/protocol.h   the wire format — single source of truth
-PROTOCOL.md           what that header means, and why
-DESIGN.md             the original design doc (reasoning, hardware analysis)
-HARDWARE.md           real pin maps, flashing, macOS mode limits
-firmware/             ESP-IDF v5.5: TinyUSB vendor / TCP → tiles → panel
+PROTOCOL.md           what that header means
+DESIGN.md             architecture and the reasoning behind it
+HARDWARE.md           boards, pins, flashing, touch mappings
+NOTES.md              platform constraints that shaped the design
+firmware/             ESP-IDF v5.5: USB vendor / TCP → tiles → panel
   main/               board.h, lcd.c, usb_vendor.c, net.c, stream.c, touch.c
   test/               host-compiled tests for the pure C logic
-host/                 macOS: Swift + libusb
-  Sources/GlintCore/  wire format, tiling, RLE (platform-neutral, tested)
-  Sources/glint/      CLI, capture, CGVirtualDisplay, touch, discovery
-linux/                pure-Go host (Pi and amd64), no cgo, no dependencies
-  mdns/               query-only mDNS, because a cgo-free binary cannot use avahi
+  components/         third-party code, under its own licence
+host/Sources/GlintCore/  wire format, tiling, RLE — platform-neutral, tested
+host/Sources/glint/      CLI, capture, CGVirtualDisplay, touch, discovery
+linux/                pure-Go host, no cgo, no dependencies
 packaging/            LaunchAgent for login start, udev rule for usbfs
 ```
 
-## Verification without hardware
+## Licence
 
-```sh
-make test        # 39 Swift unit tests + C decoder tests + 6 Go packages
-```
-
-All three RLE implementations are pinned to each other by a shared fixture:
-bytes produced by the real Swift encoder are decoded by the real C decoder
-(`firmware/test/rle_test.c`), and the Go encoder is asserted to emit those exact
-bytes (`linux/proto/fixture_test.go`). If any implementation's format drifts,
-that test fails instead of the panel smearing.
-
-## Throughput, and what actually limits it
-
-Both boards are limited by the link, not by the host: profiling a full-frame
-send shows **94–100% of each frame is the USB write**, with render and encode
-together under 3 ms.
-
-| | ESP32-P4 (USB high speed) | ESP32-S3 (USB **full speed** only) |
-|---|---|---|
-| Full-frame throughput | **7.9 MB/s** | 0.46 MB/s |
-| Full-screen frame rate | **25.7 fps** (320×480) | ~1 fps (466×466) |
-| Bound by | the ST7796's ~8 MB/s SPI bus | the 1.2 MB/s full-speed USB ceiling |
-
-**Batching packets into one bulk write was worth +74% on the P4** (4.53 → 7.89
-MB/s), because a blocking transfer per tile left the link idle in between. The
-same change measured *nothing* at full speed, where the link is so slow that
-per-transfer overhead disappears — which is why it is worth measuring a change
-on the hardware whose limit you are actually chasing.
-
-The P4 now sits at its panel's SPI ceiling, so further gains there need the DSI
-upgrade in [DESIGN.md](DESIGN.md) §8 rather than better software. The S3's lever
-is content locality instead: dirty tiling brings a moving desktop from 424 KB to
-~91 KB per frame, and RLE compresses flat regions on top.
-
-Things that measured **no** improvement, so they are not worth retrying:
-enlarging the device's vendor RX FIFO (64 B → 4096 B at full speed) and
-bypassing the USB hub to attach the board directly.
-
-## Measured numbers
-
-What the encoding does to a frame, on the P4 (USB high speed, ST7796 SPI at
-80 MHz). The rates for the link itself are in the table above.
-
-| | |
-|---|---|
-| Full frame, uncompressed | 300 KB |
-| Dirty-tile push (typical desktop) | 18 KB, 2.4 tiles/frame |
-| Idle desktop | most frames send nothing at all |
-| Flat 64×64 tile, RLE | 8192 bytes → 4 |
-| Same frames over Wi-Fi | 1.93 MB/s, 6.3 fps — a 64 KB TCP window, up from 0.24 MB/s with lwIP's default 5.7 KB |
-
-## Known limits
-
-- **macOS refuses small virtual displays.** On 26.5, any mode whose smallest
-  dimension is under ~500 px gets halved, and switching back fails with
-  `CGError 1001`. Accepted: landscape 960×640 (default) or 800×534; portrait
-  640×960. Panel-native 480×320 is not achievable, so text is always rendered
-  at 2× and downscaled — that is the source of the slight softness, not the
-  panel.
-- **HiDPI is ignored** for virtual displays (tried both pixel- and point-sized
-  modes). Lanczos + sharpen in the capture path was measurably *worse* for text
-  than the stream scaler; don't redo either.
-- **Backlight on the P4 board is on/off**, wired to a plain GPIO — no dimming
-  headroom, so `CMD_BACKLIGHT` is effectively a switch there. Colour flatness is
-  compensated host-side (`--sat`/`--con`); tuning the panel's gamma table in
-  firmware is the untried fix at the source.
-- **`CGVirtualDisplay` is private API.** It can break on any macOS update. This
-  is the deal for every virtual-display tool on macOS.
-- **WindowServer keys a virtual display on vendor/product/serial** and does not
-  reliably reap the previous session's registration. The new display is then
-  created — `CGDisplayBounds` even answers for it — but never comes online or
-  appears in shareable content. `glint display` retries with a varied serial
-  rather than exiting; a retry costs that panel's saved arrangement.
-- **Screen Recording permission** is required, and the purple indicator stays on.
+The code in this repository is MIT, copyright Shubham. `firmware/components/`
+contains third-party code that keeps its own licence — XPowersLib is MIT.

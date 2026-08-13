@@ -15,7 +15,8 @@
 
 #if CONFIG_GLINT_BOARD_P4_LCD35
 
-/* ESP32-P4-WIFI6-Touch-LCD-3.5 — pins proven by carplay/mapcast on this unit. */
+/* ESP32-P4-WIFI6-Touch-LCD-3.5. These pins are what this firmware drives;
+ * verify against your own board's schematic before trusting them. */
 #define BOARD_LCD_H_RES    320
 #define BOARD_LCD_V_RES    480
 #define BOARD_LCD_QSPI     0
@@ -28,8 +29,8 @@
 #define BOARD_PIN_LCD_BL   GPIO_NUM_28
 #define BOARD_LCD_SPI_MODE 3
 #define BOARD_HAS_AXP2101  0
-#define BOARD_BL_USE_LEDC  0 /* plain GPIO, exactly as mapcast proved */
-#define BOARD_LCD_MIRROR_X 1 /* panel scans mirrored; mapcast sets this too */
+#define BOARD_BL_USE_LEDC  0 /* plain GPIO: this board has no dimming */
+#define BOARD_LCD_MIRROR_X 1 /* the panel scans mirrored */
 #define BOARD_LCD_MIRROR_Y 0
 #define BOARD_LCD_INVERT   1
 
@@ -76,7 +77,8 @@
 
 /* Waveshare ESP32-S3-Touch-AMOLED-1.75 — CO5300 over QSPI, square 466x466.
  * Pin map and the quirks below (column offset, no TE line, brightness by panel
- * command rather than a backlight pin) come from the rivo firmware, which runs
+ * command rather than a backlight pin) follow the vendor's reference design,
+ * which runs
  * this exact board. AMOLED has no backlight: CMD_BACKLIGHT maps to the panel's
  * own brightness register. */
 #define BOARD_LCD_H_RES     466

@@ -1,9 +1,9 @@
-# ESP32-P4-WIFI6-Touch-LCD-3.5 (values proven by carplay/mapcast)
+# ESP32-P4-WIFI6-Touch-LCD-3.5
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_360=y
 CONFIG_SPIRAM_MODE_HEX=y
 CONFIG_SPIRAM_SPEED_200M=y
 
-# Wi-Fi via the onboard ESP32-C6 over SDIO (esp-hosted), as mapcast proved.
+# Wi-Fi via the onboard ESP32-C6 over SDIO (esp-hosted): the P4 has no radio.
 CONFIG_ESP_HOSTED_ENABLED=y
 CONFIG_ESP_HOSTED_SDIO_HOST_INTERFACE=y
 CONFIG_ESP_HOSTED_IDF_SLAVE_TARGET="esp32c6"

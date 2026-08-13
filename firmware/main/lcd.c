@@ -84,7 +84,7 @@ static void backlight_set(uint8_t level)
     }
 }
 
-#else /* plain GPIO backlight, as mapcast drives the P4 board */
+#else /* plain GPIO backlight, as on the P4 board */
 
 static esp_err_t backlight_init(void)
 {
@@ -158,7 +158,7 @@ esp_err_t lcd_init(void)
     };
 #elif CONFIG_GLINT_BOARD_S3_LCD35
     /* Waveshare's panel wants its own init table; the registry defaults are
-     * what mapcast proved on the P4 board, so P4 passes no vendor config. */
+     * the registry driver's defaults, so the P4 passes no vendor config. */
     static const st7796_vendor_config_t vendor_cfg = {
         .init_cmds = k_s3_panel_init,
         .init_cmds_size =
