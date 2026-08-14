@@ -130,7 +130,7 @@ downscales 2:1. On Linux the framebuffer geometry is settable directly.
 bpp the driver reports to RGB565, scales it to the panel and tiles it out. Put
 it in a systemd unit and the Pi is a headless dashboard.
 
-On a slower Pi, force a small console mode in `/boot/config.txt` (for example
+On a slower Pi, force a small console mode in `/boot/firmware/config.txt` (for example
 `framebuffer_width=640`, `framebuffer_height=480`). The scaler's cost is
 proportional to the source area, and the Zero's ARM11 is not fast.
 

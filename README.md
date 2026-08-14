@@ -1,119 +1,93 @@
 # glint
 
-glint turns a supported ESP32 board with an LCD into an extra display for a
+glint turns a supported ESP32 board with an LCD into a small extra display for a
 computer.
 
-The firmware is an ESP-IDF application. It receives tiles of pixels over a USB
-vendor interface or over TCP on Wi-Fi, paints them on the panel, and reports
-touch events back. Two hosts drive it:
+I built it because the usual 3.5" ESP32 panels are sharp enough for status
+work, but most "USB display" projects either depend on proprietary stacks or
+stop at a one-off demo. glint treats the panel as a real endpoint: firmware on
+the board, a macOS host that creates a virtual display, and a Linux host that
+can drive the same panel from a framebuffer.
 
-- **macOS** (Swift) creates a real virtual display through private CoreGraphics
-  API. Windows drag onto it and it appears in System Settings. Nothing is
-  installed: no kext, no driver signing.
-- **Linux** (pure Go, no cgo) mirrors a framebuffer to the panel. On a
-  Raspberry Pi this needs no X server.
+## Demo
 
-At 3.5" and 165 PPI this suits a status panel — a docked terminal, a monitor
-widget, a timer — better than a general second monitor. Text is legible;
-gradients and photographs are not its strength.
+Demo video: coming soon.
 
-## Boards
+I will add a recorded walkthrough here showing the macOS virtual display path,
+the Linux framebuffer path, and the supported boards in use.
 
-I have tested it on these two boards, and the measurements in this README come
-from them:
+## What It Does
+
+- **macOS host**: creates a real virtual display through private CoreGraphics
+  API, then streams that display to the panel over USB or Wi-Fi.
+- **Linux host**: mirrors a framebuffer to the same panel with a pure-Go host
+  that uses usbfs directly and needs no X server.
+- **Firmware**: receives tiled pixel updates over a USB vendor interface or TCP
+  on Wi-Fi, paints them on the panel, and reports touch events back.
+
+At this size and density it works best as a status panel: a docked terminal, a
+dashboard, a timer, a monitor widget. Text is good. Gradients and photographs
+are not the point.
+
+## Motivation
+
+I wanted a small display that behaves like part of the machine rather than a
+screen driven by a custom app. On macOS that meant creating a real display and
+streaming it. On Linux that meant keeping the wire protocol host-agnostic so a
+Pi or desktop could drive the same panel without any virtual-display machinery.
+
+## What Works Today
+
+| Platform | Status | Notes |
+|---|---|---|
+| macOS | supported | Swift host, virtual display, USB and Wi-Fi, touch support |
+| Linux | supported | pure-Go host, usbfs transport, framebuffer mirroring |
+| Windows | partial | Go host drives the panel over Wi-Fi (measured 27.7 fps); USB needs a WinUSB backend |
+
+## Supported Boards
+
+I have tested glint on these boards:
 
 | Board | Panel | Link |
 |---|---|---|
 | ESP32-P4-WIFI6-Touch-LCD-3.5 | ST7796 SPI, 320x480, FT6336 touch | USB high speed, Wi-Fi |
 | Waveshare ESP32-S3-Touch-AMOLED-1.75 | CO5300 QSPI, 466x466, CST9217 touch | USB full speed, Wi-Fi |
 
-Nothing here is specific to them. A board is one header in
-`firmware/main/boards/` giving a pin map and a few panel quirks; `menuconfig`
-picks which one is built. To use different hardware, copy
-`firmware/main/boards/template.h` to `custom.h`, fill it in, and select "Custom
-board" — the build names anything you leave out. The panel's size and
-capabilities reach both hosts through the handshake, so neither host changes.
-[HARDWARE.md](HARDWARE.md) covers pins, flashing, porting and touch mappings.
+Nothing in the host code is specific to those two boards. A board is one header
+in `firmware/main/boards/` plus any panel- or touch-driver support it needs in
+firmware. The panel size and capabilities come from the handshake, so both
+hosts stay resolution-agnostic.
 
-## macOS
+Hardware details, flashing notes, board bring-up, and touch mappings live in
+[HARDWARE.md](HARDWARE.md).
 
-ESP-IDF v5.5 builds the firmware; the Makefile expects it at
-`~/esp/esp-idf-v5.5`. The host needs a Swift toolchain and libusb
-(`brew install libusb`); `Package.swift` declares a macOS 13 minimum, and the
-virtual-display behaviour described below was observed on macOS 26.5.
+## Quick Start
 
-```sh
-make setup      # guided: finds the board, builds, flashes, starts a display
-```
-
-`make setup` identifies the chip on a serial port, suggests the matching board
-profile, offers to configure Wi-Fi, then builds and flashes. It prints every
-command it runs, and keeps an existing configuration rather than overwriting it,
-so re-running is safe. The individual steps, if you prefer them:
+1. Install ESP-IDF v5.5 at `~/esp/esp-idf-v5.5`, or set `IDF_PATH`.
+2. Connect a supported board.
+3. Run:
 
 ```sh
-make            # build firmware + host
-make flash      # flash the panel over its UART port (PORT=… to choose one)
-make display    # extended desktop on the panel
+make setup
 ```
 
-`make display` finds a panel by itself: USB when a cable is in, otherwise the
-first panel answering on the network. Wi-Fi is off by default on the SPI boards
-(`menuconfig` → Wi-Fi; see [HARDWARE.md](HARDWARE.md)), so a freshly flashed one
-is USB-only until it is enabled and given credentials. Each board advertises `_glint._tcp` as
-`glint-<id>.local`. USB is preferred when both are available, being about four
-times faster. The virtual display lives exactly as long as the process; the
-process waits for a panel to appear and exits when one goes away, so a
-supervisor can restart it. `make install-agent` runs it at login.
+`make setup` finds the board, suggests the matching profile, offers Wi-Fi
+configuration, builds, flashes, and starts a display session.
+
+If you prefer to do it by hand:
 
 ```sh
-make panels                              # every panel reachable, both transports
-make display-wifi PANEL=glint-335b.local # wireless only; empty PANEL auto-picks
-glint display --usb                      # USB only
-glint display --serial glint-335b        # that board, on either transport
-glint display --portrait                 # panel upright: 640x960 desktop
-glint display --name "Studio Panel"      # what macOS calls the display
-glint display --touch --tp-swap --tp-flip-x  # touch drives the cursor
-glint doctor                             # panel, permissions, private API
-glint mirror --landscape                 # mirror the main display instead
-glint image photo.heic --fill            # push one still
-glint bars --seconds 10                  # transport test
-glint touch --calibrate                  # derive the touch mapping from taps
-glint stats                              # device counters (drops, resyncs)
-glint backlight 128 | glint sleep 1
+make            # build firmware + macOS host
+make flash      # flash the board
+make display    # macOS extended desktop on the panel
 ```
 
-`make panels` runs `glint --list`, which marks a panel already serving another
-session as in use. The Linux host spells the same command `glint panels`.
+## Platform Guides
 
-Colour shaping: `--sat P --con P` (percent, defaults 130 and 110), `--flat` for
-none. Desktop size: `--width W --height H --1x`. Frame cap: `--fps N`. `--full`
-disables tiling, which is useful for measurement. `glint display` needs Screen
-Recording permission and `--touch` also needs Accessibility; `glint doctor`
-reports on both.
+- [macOS guide](docs/macos.md)
+- [Linux guide](docs/linux.md)
 
-## Linux and Raspberry Pi
-
-The protocol is host-agnostic, so a Pi drives the same panel with no
-virtual-display machinery. The Go host (Go 1.21 or newer) has no cgo and no
-module dependencies — USB goes through usbfs ioctls — so cross-compiling needs
-neither libusb nor a network.
-
-```sh
-make pi                                        # builds arm64 and armv6
-scp linux/glint-pi-arm64 <user>@<pi>:~/glint
-scp packaging/70-glint.rules <user>@<pi>:~/    # usbfs permission, once
-ssh <pi> ./glint fbinfo                        # framebuffer geometry, no panel needed
-ssh <pi> ./glint fb -native -landscape         # the console, on the panel, 1:1
-ssh <pi> ./glint fb -net auto -native          # the same with no data cable
-```
-
-64-bit Raspberry Pi OS needs `glint-pi-arm64`; `glint-pi-armv6` covers a Pi Zero
-W and 32-bit Pi OS. `-native` sets the console to the panel's exact size and
-streams without scaling, which macOS cannot do. Details in
-[linux/README.md](linux/README.md).
-
-## Measured performance
+## Measured Performance
 
 Full-frame throughput over USB, colour bars, no compression:
 
@@ -135,52 +109,56 @@ encoding does to a frame on the P4:
 | Flat 64x64 tile, RLE | 8192 bytes to 4 |
 | Wi-Fi, same frames | 1.93 MB/s, 6.3 fps |
 
-Linux host on a Raspberry Pi 3, colour bars with RLE: 49.3 fps over USB and
-35.1 fps over Wi-Fi with tiling; 45.6 and 32.5 fps sending whole frames.
+Per-platform figures are in the [macOS](docs/macos.md) and
+[Linux](docs/linux.md) guides.
 
-## Limits
+## Current Limits
 
-- The macOS desktop is 960x640 downscaled 2:1, because macOS will not create a
-  virtual display at the panel's native size. See [NOTES.md](NOTES.md).
+- macOS cannot create a virtual display at the panel's native size, so the
+  default desktop is downscaled 2:1. See [NOTES.md](NOTES.md).
+- `CGVirtualDisplay` is private API and can break on a macOS update.
 - HiDPI is ignored for virtual displays.
-- `CGVirtualDisplay` is private API and can break on any macOS update, as it can
-  for every virtual-display tool on macOS.
-- Backlight on the P4 board is a plain GPIO, so `CMD_BACKLIGHT` is on/off there.
-- Screen Recording permission is required, and the recording indicator stays on.
-- The Windows host drives the panel over Wi-Fi only. The firmware now binds
-  WinUSB, so a USB backend is possible, but the Go host's USB path is usbfs and
-  Linux-only.
+- The P4 board's backlight is a plain GPIO, so `CMD_BACKLIGHT` is effectively
+  on/off there.
+- The Linux USB path is usbfs-based and Linux-only.
+- Screen Recording permission is required on macOS, and the recording indicator
+  stays on for as long as a session runs.
+- On Windows the firmware binds WinUSB, but the Go host has no USB backend for
+  it yet, so Windows drives the panel over Wi-Fi.
 
-## Verification without hardware
+## Verification
 
-`make test` runs the Swift unit tests for the platform-neutral host code (wire
-format, tiling, RLE, touch mapping, option parsing), the host-compiled C tests
-for the firmware's RLE decoder, and `go test ./...` across the Linux packages.
+`make test` runs:
 
-The three RLE implementations are pinned to each other by a shared fixture:
-bytes from the Swift encoder are decoded by the firmware's own C decoder
-(`firmware/test/rle_test.c`), and the Go encoder is asserted to produce those
-same bytes (`linux/proto/fixture_test.go`).
+- Swift unit tests for the shared host logic
+- host-compiled C tests for the firmware RLE decoder
+- `go test ./...` across the Linux host packages
 
-## Layout
+The Swift, Go, and firmware-side RLE implementations are pinned to the same
+fixture so they agree byte-for-byte.
 
+## Technical Docs
+
+- [HARDWARE.md](HARDWARE.md): boards, pins, flashing, touch mappings
+- [DESIGN.md](DESIGN.md): architecture and design decisions
+- [PROTOCOL.md](PROTOCOL.md): wire format
+- [NOTES.md](NOTES.md): platform constraints and non-obvious behavior
+- [THIRD-PARTY.md](THIRD-PARTY.md): third-party code and licenses
+
+## Repository Layout
+
+```text
+protocol/protocol.h         wire format source of truth
+firmware/                   ESP-IDF firmware
+  components/               third-party code, under its own licence
+host/Sources/GlintCore/     shared host logic: protocol, tiling, RLE
+host/Sources/glint/         macOS host CLI and virtual-display path
+linux/                      Linux host and transport code
+packaging/                  LaunchAgent and udev rule
+tools/                      setup helpers
 ```
-protocol/protocol.h   the wire format — single source of truth
-PROTOCOL.md           what that header means
-DESIGN.md             architecture and the reasoning behind it
-HARDWARE.md           boards, pins, flashing, touch mappings
-NOTES.md              platform constraints that shaped the design
-firmware/             ESP-IDF v5.5: USB vendor / TCP → tiles → panel
-  main/               board.h, lcd.c, usb_vendor.c, net.c, stream.c, touch.c
-  test/               host-compiled tests for the pure C logic
-  components/         third-party code, under its own licence
-host/Sources/GlintCore/  wire format, tiling, RLE — platform-neutral, tested
-host/Sources/glint/      CLI, capture, CGVirtualDisplay, touch, discovery
-linux/                pure-Go host, no cgo, no dependencies
-packaging/            LaunchAgent for login start, udev rule for usbfs
-```
 
-## Licence
+## License
 
-MIT — see [LICENSE](LICENSE). Third-party components keep their own terms,
-listed in [THIRD-PARTY.md](THIRD-PARTY.md).
+MIT — see [LICENSE](LICENSE). Third-party code keeps its own terms, listed in
+[THIRD-PARTY.md](THIRD-PARTY.md).
