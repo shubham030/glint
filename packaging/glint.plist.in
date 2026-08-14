@@ -9,10 +9,10 @@
   disconnect), which is also how it picks up a board that reboots.
 
   Install:
-    cp packaging/com.shubham.glint.plist ~/Library/LaunchAgents/
-    launchctl load ~/Library/LaunchAgents/com.shubham.glint.plist
+    cp packaging/com.glint.display.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.glint.display.plist
   Uninstall:
-    launchctl unload ~/Library/LaunchAgents/com.shubham.glint.plist
+    launchctl unload ~/Library/LaunchAgents/com.glint.display.plist
 
   Screen Recording permission belongs to the binary being run, so the first
   launch may need approval in System Settings → Privacy & Security.
@@ -20,11 +20,11 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.shubham.glint</string>
+    <string>com.glint.display</string>
 
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/shubham/Desktop/Personal/glint/host/.build/release/glint</string>
+        <string>@GLINT@</string>
         <string>display</string>
     </array>
 

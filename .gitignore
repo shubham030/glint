@@ -1,6 +1,7 @@
 .DS_Store
 
 # ESP-IDF
+firmware/.cache/
 firmware/build/
 firmware/managed_components/
 firmware/sdkconfig

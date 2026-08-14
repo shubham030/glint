@@ -8,7 +8,7 @@
 #if BOARD_HAS_TOUCH
 
 #if BOARD_HAS_FT6336
-#include "esp_lcd_touch_ft6336.h"
+#include "esp_lcd_touch_ft6x36.h"
 #elif BOARD_HAS_CST9217
 #include "esp_lcd_touch_cst9217.h"
 #endif
@@ -222,7 +222,7 @@ static esp_err_t new_controller(esp_lcd_panel_io_handle_t io,
                                 const esp_lcd_touch_config_t *cfg)
 {
 #if BOARD_HAS_FT6336
-    return esp_lcd_touch_new_i2c_ft6336(io, cfg, &s_tp);
+    return esp_lcd_touch_new_i2c_ft6x36(io, cfg, &s_tp);
 #elif BOARD_HAS_CST9217
     return esp_lcd_touch_new_i2c_cst9217(io, cfg, &s_tp);
 #else
@@ -235,7 +235,7 @@ static esp_err_t new_controller(esp_lcd_panel_io_handle_t io,
 esp_err_t touch_init(i2c_master_bus_handle_t bus)
 {
 #if BOARD_HAS_FT6336
-    esp_lcd_panel_io_i2c_config_t io_cfg = ESP_LCD_TOUCH_IO_I2C_FT6336_CONFIG();
+    esp_lcd_panel_io_i2c_config_t io_cfg = ESP_LCD_TOUCH_IO_I2C_FT6x36_CONFIG();
 #elif BOARD_HAS_CST9217
     esp_lcd_panel_io_i2c_config_t io_cfg = ESP_LCD_TOUCH_IO_I2C_CST9217_CONFIG();
 #endif

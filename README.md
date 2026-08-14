@@ -181,5 +181,5 @@ packaging/            LaunchAgent for login start, udev rule for usbfs
 
 ## Licence
 
-The code in this repository is MIT, copyright Shubham. `firmware/components/`
-contains third-party code that keeps its own licence — XPowersLib is MIT.
+MIT — see [LICENSE](LICENSE). Third-party components keep their own terms,
+listed in [THIRD-PARTY.md](THIRD-PARTY.md).

@@ -1,0 +1,39 @@
+# Everything here runs without a panel attached: the wire format, tiling, RLE,
+# the touch mapping arithmetic and the option parser are all pure logic. The
+# firmware's own C decoder is compiled for the host and fed bytes produced by
+# the Swift encoder, which is what keeps three implementations agreeing.
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  host:
+    name: macOS host + firmware decoder
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install libusb
+      - name: Swift unit tests
+        run: cd host && swift test
+      - name: Firmware RLE decoder (host-compiled)
+        run: ./firmware/test/run.sh
+
+  linux:
+    name: Linux host
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+      - run: cd linux && go vet ./...
+      - run: cd linux && go test ./...
+      - name: Cross-compile the hosts we ship
+        run: |
+          cd linux
+          GOOS=linux GOARCH=arm64 go build ./...
+          GOOS=linux GOARCH=arm GOARM=6 go build ./...
+          GOOS=windows GOARCH=amd64 go build ./...

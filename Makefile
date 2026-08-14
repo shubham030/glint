@@ -103,14 +103,16 @@ pi:
 	@echo "scp linux/glint-pi-arm64 <user>@<pi>:~/glint   # then ./glint fbinfo"
 	@echo "usbfs needs a udev rule once: packaging/70-glint.rules"
 
+# The plist is a template: the binary's path is wherever this checkout lives.
 install-agent: host
-	cp packaging/com.shubham.glint.plist $(HOME)/Library/LaunchAgents/
-	launchctl load $(HOME)/Library/LaunchAgents/com.shubham.glint.plist
+	sed 's|@GLINT@|$(abspath $(GLINT))|' packaging/glint.plist.in \
+	  > $(HOME)/Library/LaunchAgents/com.glint.display.plist
+	launchctl load $(HOME)/Library/LaunchAgents/com.glint.display.plist
 	@echo "glint will now start at login; logs in /tmp/glint.log"
 
 uninstall-agent:
-	launchctl unload $(HOME)/Library/LaunchAgents/com.shubham.glint.plist || true
-	rm -f $(HOME)/Library/LaunchAgents/com.shubham.glint.plist
+	launchctl unload $(HOME)/Library/LaunchAgents/com.glint.display.plist || true
+	rm -f $(HOME)/Library/LaunchAgents/com.glint.display.plist
 
 clean:
 	cd firmware && rm -rf build
