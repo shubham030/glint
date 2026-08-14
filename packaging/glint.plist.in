@@ -8,11 +8,9 @@
   KeepAlive restarts it when the panel goes away (the session exits 3 on
   disconnect), which is also how it picks up a board that reboots.
 
-  Install:
-    cp packaging/com.glint.display.plist ~/Library/LaunchAgents/
-    launchctl load ~/Library/LaunchAgents/com.glint.display.plist
-  Uninstall:
-    launchctl unload ~/Library/LaunchAgents/com.glint.display.plist
+  This is a template, not an installable file: @GLINT@ is substituted with the
+  built binary's path. Install with `make install-agent`, remove with
+  `make uninstall-agent`.
 
   Screen Recording permission belongs to the binary being run, so the first
   launch may need approval in System Settings → Privacy & Security.

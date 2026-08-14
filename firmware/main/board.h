@@ -126,5 +126,6 @@
 #define BOARD_TOUCH_NAME "no touch"
 #endif
 
-/* Largest single tile payload we accept: one full-width 64px strip. */
+/* Largest single tile payload the firmware accepts: one full-width 64px
+ * strip. */
 #define BOARD_MAX_TILE_LEN (BOARD_LCD_H_RES * 64 * 2)

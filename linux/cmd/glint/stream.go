@@ -167,7 +167,7 @@ func runFramebuffer(ctx context.Context, dev link, hello proto.Hello, args []str
 	}
 	fmt.Printf("mirroring: %s\n", pipe.sender.Grid())
 
-	// Drain bulk IN for as long as we are streaming. Waiting for the reader to
+	// Drain bulk IN for as long as the stream runs. Waiting for the reader to
 	// finish before returning keeps it off the file descriptor that the
 	// caller's deferred Close is about to take away.
 	ctx, cancel := context.WithCancel(ctx)

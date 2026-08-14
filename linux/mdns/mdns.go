@@ -28,7 +28,7 @@ var (
 	group = &net.UDPAddr{IP: net.IPv4(224, 0, 0, 251), Port: 5353}
 )
 
-// DNS record types and the classes we care about.
+// The DNS record types and classes this client uses.
 const (
 	typeA   uint16 = 1
 	typePTR uint16 = 12
@@ -128,7 +128,7 @@ func ask(name string, qtype uint16, timeout time.Duration, enough func([]record)
 		copy(msg, buf[:n])
 		rrs, perr := parse(msg)
 		if perr != nil {
-			continue // a malformed or unrelated packet is not our problem
+			continue // a malformed or unrelated packet is not this query's concern
 		}
 		all = append(all, rrs...)
 		if enough != nil && enough(all) {

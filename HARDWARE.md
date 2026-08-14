@@ -109,7 +109,6 @@ wiring fault.
 
 ```sh
 make fw            # ESP32-P4, default build directory
-make fw-s3         # ESP32-S3 3.5", build_s3/
 make fw-amoled     # ESP32-S3 AMOLED 1.75", build_amoled/
 make flash         # flash the P4
 make flash-amoled  # flash the AMOLED board

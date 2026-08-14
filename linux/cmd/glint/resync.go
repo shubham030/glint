@@ -39,7 +39,7 @@ func (w *resyncWatcher) observe(evt proto.Event) bool {
 	}
 	// Any movement counts. A rise is the normal case; a counter going
 	// backwards means the device restarted its own bookkeeping, in which case
-	// the panel's contents no longer match what our hashes claim either.
+	// the panel's contents no longer match what the sender's hashes claim.
 	//
 	// Resyncs matter as much as drops: the firmware only increments them when
 	// it discards bytes hunting for a tile magic or rejects a malformed

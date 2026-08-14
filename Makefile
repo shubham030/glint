@@ -15,8 +15,6 @@ all: fw host
 fw:
 	cd firmware && $(IDF_EXPORT) && idf.py build
 
-# The other supported board (Waveshare ESP32-S3-Touch-LCD-3.5), built in its own
-# directory so the P4 config stays put.
 # The 1.75" QSPI AMOLED board — a different panel driver and geometry, so it
 # gets its own config and build directory rather than reconfiguring in place.
 fw-amoled:
@@ -40,7 +38,7 @@ test-fw:
 	./firmware/test/run.sh
 
 test-go:
-	cd linux && go test ./... 2>/dev/null || echo "(linux host not built yet)"
+	cd linux && go test ./...
 
 flash:
 	cd firmware && $(IDF_EXPORT) && idf.py -p $(PORT) -b 460800 flash

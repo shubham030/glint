@@ -97,11 +97,12 @@ final class TouchReader {
         if evt.type == .stats {
             /* Either counter moving means a tile never reached the panel — a
              * resync is the device discarding bytes or rejecting a header, not
-             * just bookkeeping — so the panel no longer matches our hash table.
+             * just bookkeeping — so the panel no longer matches the sender's
+             * hash table.
              * Movement in any direction counts: a counter going backwards means
              * the device restarted its bookkeeping, which is equally divergent.
-             * A first report with non-zero counters means losses happened before
-             * we started watching. */
+             * A first report with non-zero counters means losses happened
+             * before this reader started watching. */
             let firstReport = lastLosses < 0
             let changed = evt.x != lastLosses || evt.y != lastResyncs
             let lostSomething = evt.x > 0 || evt.y > 0

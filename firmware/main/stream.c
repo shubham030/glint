@@ -34,7 +34,7 @@ static volatile bool s_reset_requested;
  * Deliberately NOT the RTC force-download strap: that bit survives every reset
  * and only clears on true power loss, so setting it strands the board in the
  * loader until it is physically unplugged — worse than the button it replaces.
- * An RTC_NOINIT flag survives the soft restart we are about to do and is
+ * An RTC_NOINIT flag survives the soft restart that follows and is
  * cleared by the boot that honours it, making it genuinely one-shot. */
 static void glint_reboot_to_loader(void)
 {

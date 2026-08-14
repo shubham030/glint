@@ -27,7 +27,7 @@ func TestResyncWatcherPolicy(t *testing.T) {
 			want:   []bool{false, false},
 		},
 		{
-			name:   "losses before we started watching still count",
+			name:   "losses before the reader started watching still count",
 			events: []proto.Event{stats(3, 0)},
 			want:   []bool{true},
 		},

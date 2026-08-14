@@ -49,7 +49,7 @@ func find(vid, pid uint16) (deviceInfo, error) {
 func idsMatch(dir string, vid, pid uint16) bool {
 	gotVID, err := readUint(dir, "idVendor", 16)
 	if err != nil {
-		return false // an interface directory, or one we may not read
+		return false // an interface directory, or one this process may not read
 	}
 	gotPID, err := readUint(dir, "idProduct", 16)
 	return err == nil && uint16(gotVID) == vid && uint16(gotPID) == pid

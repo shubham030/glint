@@ -25,7 +25,7 @@ func TestParseHelloRoundTrip(t *testing.T) {
 }
 
 // The byte layout is the contract with the firmware, so pin it explicitly
-// rather than only round-tripping through our own writer.
+// rather than only round-tripping through this package's own writer.
 func TestHelloWireLayout(t *testing.T) {
 	b := AppendHello(nil, Hello{
 		ProtoVer: 1, PanelW: 320, PanelH: 480, FmtMask: 3,

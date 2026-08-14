@@ -47,7 +47,7 @@ final class MirrorSession: NSObject, SCStreamOutput, SCStreamDelegate {
     }
 
     /// Called from the event-reader thread when the device reports dropped
-    /// tiles: the panel and our hash table have diverged, so the next frame
+    /// tiles: the panel and the sender's hash table have diverged, so the next frame
     /// must be a full refresh.
     ///
     /// This only raises a flag. `TileSender` is not concurrency-safe and the
