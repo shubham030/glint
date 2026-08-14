@@ -92,13 +92,27 @@ kernel reports to RGB565, scales it to the panel, and sends tiled updates.
 console renders at its final size with no resampling. This is the thing macOS
 cannot do.
 
-On slower Pi boards, use a smaller framebuffer mode in `/boot/config.txt`, for
-example:
+On slower Pi boards, use a smaller framebuffer mode in
+`/boot/firmware/config.txt` (`/boot/config.txt` before Bookworm), for example:
 
 ```text
 framebuffer_width=640
 framebuffer_height=480
 ```
+
+## Measured Performance
+
+Raspberry Pi 3 driving the ESP32-P4 panel, colour bars with RLE:
+
+| | tiled | whole frames (`-full`) |
+|---|---|---|
+| USB | 49.3 fps, 0.77 MB/s | 45.6 fps, 0.71 MB/s |
+| Wi-Fi | 35.1 fps, 0.55 MB/s | 32.5 fps, 0.51 MB/s |
+
+Both are well under the 1.93 MB/s this panel sustains to a Mac over the same
+Wi-Fi, so the Pi's own render and encode is the limit here, not either link.
+
+A static console sends almost nothing: 144 tiles across 548 frames at 1:1.
 
 ## Notes
 

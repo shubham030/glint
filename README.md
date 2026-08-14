@@ -42,7 +42,7 @@ Pi or desktop could drive the same panel without any virtual-display machinery.
 |---|---|---|
 | macOS | supported | Swift host, virtual display, USB and Wi-Fi, touch support |
 | Linux | supported | pure-Go host, usbfs transport, framebuffer mirroring |
-| Windows | partial | Go host builds for Wi-Fi use, but there is no documented user path yet |
+| Windows | partial | Go host drives the panel over Wi-Fi (measured 27.7 fps); USB needs a WinUSB backend |
 
 ## Supported Boards
 
@@ -87,6 +87,31 @@ make display    # macOS extended desktop on the panel
 - [macOS guide](docs/macos.md)
 - [Linux guide](docs/linux.md)
 
+## Measured Performance
+
+Full-frame throughput over USB, colour bars, no compression:
+
+| | ESP32-P4 (high speed) | ESP32-S3 AMOLED (full speed) |
+|---|---|---|
+| Throughput | 7.9 MB/s | 0.46 MB/s |
+| Full-screen frame rate | 25.7 fps at 320x480 | about 1 fps at 466x466 |
+| Bound by | the ST7796 SPI bus, about 8 MB/s | the 1.2 MB/s full-speed USB ceiling |
+
+Neither is bound by the host: profiling a full-frame send puts 94-100% of each
+frame in the USB write, with render and encode together under 3 ms. What the
+encoding does to a frame on the P4:
+
+| | |
+|---|---|
+| Full frame, uncompressed | 300 KB |
+| Dirty-tile push, typical desktop | 18 KB, 2.4 tiles per frame |
+| Idle desktop | most frames send nothing |
+| Flat 64x64 tile, RLE | 8192 bytes to 4 |
+| Wi-Fi, same frames | 1.93 MB/s, 6.3 fps |
+
+Per-platform figures are in the [macOS](docs/macos.md) and
+[Linux](docs/linux.md) guides.
+
 ## Current Limits
 
 - macOS cannot create a virtual display at the panel's native size, so the
@@ -96,6 +121,10 @@ make display    # macOS extended desktop on the panel
 - The P4 board's backlight is a plain GPIO, so `CMD_BACKLIGHT` is effectively
   on/off there.
 - The Linux USB path is usbfs-based and Linux-only.
+- Screen Recording permission is required on macOS, and the recording indicator
+  stays on for as long as a session runs.
+- On Windows the firmware binds WinUSB, but the Go host has no USB backend for
+  it yet, so Windows drives the panel over Wi-Fi.
 
 ## Verification
 
@@ -121,6 +150,7 @@ fixture so they agree byte-for-byte.
 ```text
 protocol/protocol.h         wire format source of truth
 firmware/                   ESP-IDF firmware
+  components/               third-party code, under its own licence
 host/Sources/GlintCore/     shared host logic: protocol, tiling, RLE
 host/Sources/glint/         macOS host CLI and virtual-display path
 linux/                      Linux host and transport code

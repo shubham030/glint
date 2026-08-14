@@ -86,9 +86,23 @@ session as in use.
 - Frame cap: `--fps N`
 - Disable tiling: `--full`
 
+## Measured Performance
+
+Streaming a 960x640 desktop to the 320x480 P4 panel:
+
+| | USB (high speed) | Wi-Fi |
+|---|---|---|
+| Throughput | 7.9 MB/s | 1.93 MB/s |
+| Frame rate | 25.7 fps full-screen | 6.3 fps full-screen |
+
+A typical desktop changes little between frames, so dirty-rect tiling sends
+about 18 KB per frame rather than 300 KB, and an idle desktop sends nothing at
+all. `--full` disables tiling, which is what the full-screen figures measure.
+
 ## Permissions
 
-`glint display` needs Screen Recording permission.
+`glint display` needs Screen Recording permission, and the recording indicator
+stays on for as long as the session runs.
 
 If you use `--touch`, macOS Accessibility permission is needed too.
 
