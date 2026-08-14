@@ -8,7 +8,8 @@ import GlintCore
 func runDisplay(dev: Link, hello: Hello, opts: Options) async throws {
     let (pointsW, pointsH) = opts.desktopSize(
         panelW: hello.panelW, panelH: hello.panelH)
-    let identity = PanelIdentity(hello: hello, devIndex: opts.devIndex)
+    let identity = PanelIdentity(
+        hello: hello, devIndex: opts.devIndex, name: opts.name)
 
     let (displayID, session) = try await attachDisplay(
         dev: dev, hello: hello, opts: opts,
@@ -32,13 +33,13 @@ struct PanelIdentity {
     let serial: UInt32
     let name: String
 
-    init(hello: Hello, devIndex: Int) {
+    init(hello: Hello, devIndex: Int, name override: String? = nil) {
         if hello.devId != 0 {
             serial = UInt32(hello.devId)
-            name = String(format: "glint %04x", hello.devId)
+            name = override ?? String(format: "glint %04x", hello.devId)
         } else {
             serial = UInt32(1 + devIndex)
-            name = "glint"
+            name = override ?? "glint"
         }
     }
 }

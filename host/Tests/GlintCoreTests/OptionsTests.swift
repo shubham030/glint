@@ -36,6 +36,14 @@ final class OptionsTests: XCTestCase {
         XCTAssertEqual(opts("display").port, 7788)
     }
 
+    func testDisplayNameIsOptionalAndKeepsSpaces() {
+        XCTAssertNil(opts("display").name)
+        XCTAssertEqual(opts("display", "--name", "Studio Panel").name,
+                       "Studio Panel")
+        /* A following flag is not a name. */
+        XCTAssertNil(opts("display", "--name", "--touch").name)
+    }
+
     func testFlatOverridesColourShaping() {
         let shaped = opts("display", "--sat", "150", "--con", "120")
         XCTAssertEqual(shaped.saturation, 150)

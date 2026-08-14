@@ -24,6 +24,9 @@ public struct Options {
     public let devIndex: Int
     /// --serial glint-6204: names a panel by its own id rather than by position.
     public let serial: String?
+    /// --name "Studio Panel": what macOS calls the display. Purely cosmetic;
+    /// the display's identity to WindowServer is its serial, not its name.
+    public let name: String?
     public let noWait: Bool
 
     // Geometry and appearance
@@ -69,6 +72,7 @@ public struct Options {
         port = int("--port", 7788)
         devIndex = int("--dev", 0)
         serial = value("--serial")
+        name = value("--name")
         noWait = flag("--no-wait")
 
         portrait = flag("--portrait")

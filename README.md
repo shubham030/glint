@@ -72,6 +72,7 @@ make display-wifi PANEL=glint-335b.local # wireless only; empty PANEL auto-picks
 glint display --usb                      # USB only
 glint display --serial glint-335b        # that board, on either transport
 glint display --portrait                 # panel upright: 640x960 desktop
+glint display --name "Studio Panel"      # what macOS calls the display
 glint display --touch --tp-swap --tp-flip-x  # touch drives the cursor
 glint doctor                             # panel, permissions, private API
 glint mirror --landscape                 # mirror the main display instead
