@@ -20,7 +20,6 @@ file and none is redistributed here.
 |---|---|
 | `espressif/esp_tinyusb`, `espressif/tinyusb` | MIT / Apache-2.0 |
 | `espressif/esp_lcd_st7796`, `esp_lcd_co5300`, `esp_lcd_touch` | Apache-2.0 |
-| `lambage/esp_lcd_touch_ft6336u` | Apache-2.0 |
 | `waveshare/esp_lcd_touch_cst9217` | Apache-2.0 |
 | `espressif/mdns`, `esp_wifi_remote`, `esp_hosted` | Apache-2.0 |
 

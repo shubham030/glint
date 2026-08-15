@@ -1,6 +1,7 @@
 #include "touch.h"
 
 #include "board.h"
+#include "driver/gpio.h"
 #include "esp_check.h"
 /* Everything below needs a touch controller. A board profile without one still
  * compiles this file, so the guard lives here rather than in the build: CMake
@@ -8,7 +9,7 @@
 #if BOARD_HAS_TOUCH
 
 #if BOARD_HAS_FT6336
-#include "esp_lcd_touch_ft6x36.h"
+#include "ft6336.h"
 #elif BOARD_HAS_CST9217
 #include "esp_lcd_touch_cst9217.h"
 #endif
@@ -215,6 +216,35 @@ static void scan_bus(i2c_master_bus_handle_t bus)
     }
 }
 
+/* Pulses the controller's reset line and waits for it to boot.
+ *
+ * Not every driver does this: the registry FT6336 component leaves RST alone,
+ * so the chip acknowledges its address while every register still reads 0x00
+ * and the driver rejects it as an invalid vendor id. The pin is a board fact,
+ * so the reset belongs here rather than in a driver. Datasheet asks for at
+ * least 5 ms low; the chip is readable a couple of hundred milliseconds after
+ * release.
+ */
+static void reset_controller(void)
+{
+#if defined(BOARD_PIN_TP_RST)
+    if (BOARD_PIN_TP_RST == GPIO_NUM_NC) {
+        return;
+    }
+    const gpio_config_t cfg = {
+        .pin_bit_mask = 1ULL << BOARD_PIN_TP_RST,
+        .mode = GPIO_MODE_OUTPUT,
+    };
+    if (gpio_config(&cfg) != ESP_OK) {
+        return;
+    }
+    gpio_set_level(BOARD_PIN_TP_RST, 0);
+    vTaskDelay(pdMS_TO_TICKS(10));
+    gpio_set_level(BOARD_PIN_TP_RST, 1);
+    vTaskDelay(pdMS_TO_TICKS(250));
+#endif
+}
+
 /* Everything below the controller is shared: both drivers present the same
  * esp_lcd_touch interface, so the polling task, the slot matching and the event
  * emission do not know which chip is underneath. */
@@ -222,7 +252,7 @@ static esp_err_t new_controller(esp_lcd_panel_io_handle_t io,
                                 const esp_lcd_touch_config_t *cfg)
 {
 #if BOARD_HAS_FT6336
-    return esp_lcd_touch_new_i2c_ft6x36(io, cfg, &s_tp);
+    return ft6336_new(io, cfg, &s_tp);
 #elif BOARD_HAS_CST9217
     return esp_lcd_touch_new_i2c_cst9217(io, cfg, &s_tp);
 #else
@@ -235,7 +265,7 @@ static esp_err_t new_controller(esp_lcd_panel_io_handle_t io,
 esp_err_t touch_init(i2c_master_bus_handle_t bus)
 {
 #if BOARD_HAS_FT6336
-    esp_lcd_panel_io_i2c_config_t io_cfg = ESP_LCD_TOUCH_IO_I2C_FT6x36_CONFIG();
+    esp_lcd_panel_io_i2c_config_t io_cfg = FT6336_IO_I2C_CONFIG();
 #elif BOARD_HAS_CST9217
     esp_lcd_panel_io_i2c_config_t io_cfg = ESP_LCD_TOUCH_IO_I2C_CST9217_CONFIG();
 #endif

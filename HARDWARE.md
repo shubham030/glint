@@ -161,12 +161,12 @@ glint display --touch --tp-swap --tp-flip-x
 Taps then post `leftMouseDown`/`leftMouseUp` pairs inside the panel's own region
 of the desktop.
 
-> **Pending re-verification.** The FT6336 driver above was replaced with the
-> `lambage/esp_lcd_touch_ft6336u` component from the ESP registry, so the
-> mapping was measured with the previous driver. The chip, its I2C address and
-> its coordinate registers are unchanged, and the code falls back to proximity
-> matching where the new driver reports no track ids — but this has not been run
-> on hardware since the change.
+> **On the touch driver.** These panels carry FT6x36-compatible parts that
+> report no vendor id, so off-the-shelf drivers reject them as invalid and touch
+> silently degrades to "display only". `firmware/main/ft6336.c` reads the data
+> registers without an id gate, and keeps the contact's track id so lifting one
+> finger does not renumber the others. Verified on the P4: two simultaneous
+> contacts, ids 0 and 1, tracked and released independently.
 
 ### AMOLED 1.75" (CST9217)
 

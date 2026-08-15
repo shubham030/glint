@@ -43,7 +43,6 @@ Pi or desktop could drive the same panel without any virtual-display machinery.
 | Platform | Status | Notes |
 |---|---|---|
 | macOS | supported | Swift host, virtual display, USB and Wi-Fi, touch support |
-| Touch on the P4 | ⚠️ | works, but the driver moved to the registry component and has not been re-run on hardware since |
 | Linux | supported | pure-Go host, usbfs transport, framebuffer mirroring |
 | Windows | partial | Go host drives the panel over Wi-Fi (measured 27.7 fps); USB needs a WinUSB backend |
 
