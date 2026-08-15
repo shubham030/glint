@@ -161,6 +161,13 @@ glint display --touch --tp-swap --tp-flip-x
 Taps then post `leftMouseDown`/`leftMouseUp` pairs inside the panel's own region
 of the desktop.
 
+> **Pending re-verification.** The FT6336 driver above was replaced with the
+> `lambage/esp_lcd_touch_ft6336u` component from the ESP registry, so the
+> mapping was measured with the previous driver. The chip, its I2C address and
+> its coordinate registers are unchanged, and the code falls back to proximity
+> matching where the new driver reports no track ids — but this has not been run
+> on hardware since the change.
+
 ### AMOLED 1.75" (CST9217)
 
 Measured by tapping all four corners with no flags applied, on a 932x932 desktop
