@@ -1,0 +1,130 @@
+# Builds everything a person needs to use glint without a toolchain: host
+# binaries for Windows and the Pi, and firmware images they can flash with
+# esptool alone. Without this, trying glint means installing ESP-IDF and Go
+# first, which is a lot to ask of someone who just wants to see it work.
+#
+# Firmware built here has no Wi-Fi credentials in it: the config comes from the
+# tracked defaults, so a released image is USB-only until the owner enables
+# Wi-Fi themselves.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  hosts:
+    name: Host binaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.21"
+      - name: Build
+        run: |
+          cd linux
+          mkdir -p ../dist
+          GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o ../dist/glint.exe ./cmd/glint
+          GOOS=linux   GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o ../dist/glint-pi-arm64 ./cmd/glint
+          GOOS=linux   GOARCH=arm GOARM=6 go build -trimpath -ldflags="-s -w" -o ../dist/glint-pi-armv6 ./cmd/glint
+          GOOS=linux   GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o ../dist/glint-linux-amd64 ./cmd/glint
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hosts
+          path: dist/
+
+  firmware:
+    name: Firmware (${{ matrix.board }})
+    runs-on: ubuntu-latest
+    container: espressif/idf:v5.5.1
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - board: p4
+            target: esp32p4
+            build_dir: build
+            sdkconfig: sdkconfig
+            defaults: sdkconfig.defaults
+            # The P4's second-stage bootloader lives at 0x2000, not 0x0.
+            bootloader_offset: "0x2000"
+          - board: amoled
+            target: esp32s3
+            build_dir: build_amoled
+            sdkconfig: sdkconfig.amoled
+            defaults: sdkconfig.defaults;sdkconfig.amoled.defaults
+            bootloader_offset: "0x0"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        shell: bash
+        run: |
+          . "$IDF_PATH/export.sh"
+          cd firmware
+          idf.py -B "${{ matrix.build_dir }}" \
+            -D SDKCONFIG="${{ matrix.sdkconfig }}" \
+            -D SDKCONFIG_DEFAULTS="${{ matrix.defaults }}" \
+            set-target "${{ matrix.target }}" build
+      - name: Package
+        shell: bash
+        run: |
+          out="dist/glint-firmware-${{ matrix.board }}"
+          mkdir -p "$out"
+          b="firmware/${{ matrix.build_dir }}"
+          cp "$b/bootloader/bootloader.bin" "$b/partition_table/partition-table.bin" \
+             "$b/glint_fw.bin" "$out/"
+          cat > "$out/FLASH.txt" <<EOF
+          glint firmware for ${{ matrix.board }} (${{ matrix.target }})
+
+          Install esptool (pip install esptool), then, with the board's UART
+          port connected:
+
+            esptool --chip ${{ matrix.target }} --port <PORT> --baud 460800 \\
+              --before default_reset --after hard_reset write_flash \\
+              ${{ matrix.bootloader_offset }} bootloader.bin \\
+              0x8000 partition-table.bin \\
+              0x10000 glint_fw.bin
+
+          <PORT> is COM3 or similar on Windows, /dev/cu.usbmodem* on macOS,
+          /dev/ttyUSB* or /dev/ttyACM* on Linux.
+
+          Wi-Fi is off in this build. Enable it with menuconfig from a source
+          checkout, or drive the panel over USB.
+          EOF
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ matrix.board }}
+          path: dist/
+
+  publish:
+    name: Publish release
+    needs: [hosts, firmware]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: staging
+      - name: Collect and checksum
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp staging/hosts/* dist/
+          for board in p4 amoled; do
+            (cd "staging/firmware-$board" && zip -r "../../dist/glint-firmware-$board.zip" .)
+          done
+          cd dist && sha256sum * > SHA256SUMS
+          ls -l
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" dist/* \
+            --title "${{ github.ref_name }}" \
+            --generate-notes \
+            --notes "Host binaries need no install: they talk to a panel over Wi-Fi, and on Linux over USB as well. Firmware zips contain the images plus the exact esptool command. See docs/macos.md and docs/linux.md."

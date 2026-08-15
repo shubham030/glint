@@ -158,6 +158,26 @@ packaging/                  LaunchAgent and udev rule
 tools/                      setup helpers
 ```
 
+## Install
+
+Releases carry prebuilt hosts and firmware, so trying glint needs no toolchain:
+
+- `glint.exe`, `glint-pi-arm64`, `glint-pi-armv6`, `glint-linux-amd64` — no
+  install, no driver; they drive a panel over Wi-Fi, and over USB on Linux.
+- `glint-firmware-p4.zip`, `glint-firmware-amoled.zip` — the images plus the
+  exact `esptool` command. Wi-Fi is off in released firmware; enable it from a
+  source checkout.
+
+The macOS host builds from source, because it links Homebrew's libusb:
+
+```sh
+brew tap shubham030/glint
+brew install glint
+```
+
+Building the firmware, or changing board configuration, still wants a clone and
+ESP-IDF — see the [macOS guide](docs/macos.md).
+
 ## License
 
 MIT — see [LICENSE](LICENSE). Third-party code keeps its own terms, listed in
