@@ -164,8 +164,10 @@ tools/                      setup helpers
 
 Releases carry prebuilt hosts and firmware, so trying glint needs no toolchain:
 
-- `glint.exe`, `glint-pi-arm64`, `glint-pi-armv6`, `glint-linux-amd64` — no
-  install, no driver; they drive a panel over Wi-Fi, and over USB on Linux.
+- `glint.exe`, `glint-pi-arm64`, `glint-pi-armv6`, `glint-linux-amd64` — single
+  binaries with no installer and no kernel driver. They drive a panel over
+  Wi-Fi, and over USB on Linux, where the USB path needs the one udev rule in
+  `packaging/` so a normal user can open the device.
 - `glint-firmware-p4.zip`, `glint-firmware-amoled.zip` — the images plus the
   exact `esptool` command. Wi-Fi is off in released firmware; enable it from a
   source checkout.
