@@ -92,8 +92,12 @@ Streaming a 960x640 desktop to the 320x480 P4 panel:
 
 | | USB (high speed) | Wi-Fi |
 |---|---|---|
-| Throughput | 7.9 MB/s | 1.93 MB/s |
-| Frame rate | 25.7 fps full-screen | 6.3 fps full-screen |
+| Throughput | 7.4-7.9 MB/s | 0.95-1.9 MB/s |
+| Frame rate | 24-26 fps full-screen | 3-6 fps full-screen |
+
+The Wi-Fi range is not noise in the measurement: it halves when the 2.4 GHz band
+is busy, and this board reaches its radio over SDIO rather than having one on
+the die.
 
 A typical desktop changes little between frames, so dirty-rect tiling sends
 about 18 KB per frame rather than 300 KB, and an idle desktop sends nothing at

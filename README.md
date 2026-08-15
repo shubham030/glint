@@ -91,17 +91,24 @@ make display    # macOS extended desktop on the panel
 
 ## Measured Performance
 
-Full-frame throughput over USB, colour bars, no compression:
+Whole frames of colour bars, no dirty-rect tiling, frame cap lifted — so these
+are link ceilings rather than what a desktop actually costs.
 
-| | ESP32-P4 (high speed) | ESP32-S3 AMOLED (full speed) |
+| | ESP32-P4 (USB high speed) | ESP32-S3 AMOLED (USB full speed) |
 |---|---|---|
-| Throughput | 7.9 MB/s | 0.46 MB/s |
-| Full-screen frame rate | 25.7 fps at 320x480 | about 1 fps at 466x466 |
-| Bound by | the ST7796 SPI bus, about 8 MB/s | the 1.2 MB/s full-speed USB ceiling |
+| USB | 7.4-7.9 MB/s, 24-26 fps at 320x480 | 0.46 MB/s, about 1 fps at 466x466 |
+| Wi-Fi | 0.95-1.9 MB/s, 3-6 fps | not measured |
+| Bound by, on USB | the ST7796's SPI bus, about 8 MB/s | the 1.2 MB/s full-speed USB ceiling |
+| Bound by, on Wi-Fi | the radio and its round-trip time | — |
 
-Neither is bound by the host: profiling a full-frame send puts 94-100% of each
-frame in the USB write, with render and encode together under 3 ms. What the
-encoding does to a frame on the P4:
+Two things worth knowing about those ranges. On USB neither board is limited by
+the host: profiling puts 94-100% of each frame in the USB write, with render and
+encode together under 3 ms. On Wi-Fi the figure halves run to run as the 2.4 GHz
+band gets busy, and the P4 has no radio of its own — its Wi-Fi is an ESP32-C6
+reached over SDIO, which adds a hop.
+
+A desktop is far cheaper than a full frame, because most of it does not change
+between frames:
 
 | | |
 |---|---|
@@ -109,10 +116,9 @@ encoding does to a frame on the P4:
 | Dirty-tile push, typical desktop | 18 KB, 2.4 tiles per frame |
 | Idle desktop | most frames send nothing |
 | Flat 64x64 tile, RLE | 8192 bytes to 4 |
-| Wi-Fi, same frames | 1.93 MB/s, 6.3 fps |
 
-Per-platform figures are in the [macOS](docs/macos.md) and
-[Linux](docs/linux.md) guides.
+Per-platform figures, including a Raspberry Pi driving the same panel, are in
+the [macOS](docs/macos.md) and [Linux](docs/linux.md) guides.
 
 ## Current Limits
 
